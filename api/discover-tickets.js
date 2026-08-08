@@ -1,12 +1,16 @@
 import { getValidAccessToken, getClients, getClientTickets } from '../lib/softcs-api.js';
 
-// Limite pra não estourar o tempo da function: só olha os N primeiros
-// clientes retornados (cada um com até 50 tickets). Dá pra aumentar depois se
-// precisar cobrir mais clientes de uma vez.
-const MAX_CLIENTS = 30;
+// A SoftCS não tem um "listar tickets de todos os clientes" — o endpoint é
+// sempre /clients/{clientId}/tickets, então a gente pagina os clientes (até
+// MAX_CLIENT_PAGES × 200, o limite máximo por página) e busca os tickets de
+// cada um. TICKET_CONCURRENCY evita disparar centenas de chamadas de uma vez.
+const CLIENT_PAGE_LIMIT = 200;
+const MAX_CLIENT_PAGES = 5;
+const TICKETS_PER_CLIENT = 200;
+const TICKET_CONCURRENCY = 20;
 
-// A API pagina como { data: [...] } (a doc menciona "items", mas o servidor
-// real usa "data" — confirmado inspecionando a resposta).
+// A API pagina como { data: [...], pagination: { hasMore, nextOffset } } (a
+// doc menciona "items", mas o servidor real usa "data").
 function extractItems(response) {
   if (Array.isArray(response)) return response;
   return response.data ?? response.items ?? [];
@@ -23,6 +27,39 @@ function extractCreator(ticket) {
   return null;
 }
 
+async function fetchAllClients() {
+  const clients = [];
+  let offset = 0;
+
+  for (let page = 0; page < MAX_CLIENT_PAGES; page++) {
+    const response = await getClients(CLIENT_PAGE_LIMIT, offset);
+    const items = extractItems(response);
+    clients.push(...items);
+
+    const pagination = response?.pagination;
+    if (items.length < CLIENT_PAGE_LIMIT || !pagination?.hasMore) break;
+    offset = pagination.nextOffset ?? offset + CLIENT_PAGE_LIMIT;
+  }
+
+  return clients;
+}
+
+// Roda `fn` sobre `items` com no máximo `limit` chamadas em paralelo por vez.
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+
+  async function worker() {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'method not allowed' });
@@ -30,22 +67,19 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Verifica o token antes de disparar as N chamadas em paralelo — assim um
+    // Verifica o token antes de disparar as chamadas em paralelo — assim um
     // token expirado vira um erro claro em vez de "0 tickets" sem explicação
     // (cada chamada abaixo engole erro individual pra não derrubar as outras).
     await getValidAccessToken();
 
-    const clientsResponse = await getClients(MAX_CLIENTS, 0);
-    const clients = extractItems(clientsResponse);
+    const clients = await fetchAllClients();
     const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
 
-    const ticketLists = await Promise.all(
-      clients.map((client) =>
-        getClientTickets(client.id, 50, 0).catch((err) => {
-          console.error(`Falha ao buscar tickets do cliente ${client.id}:`, err.message);
-          return null;
-        })
-      )
+    const ticketLists = await mapWithConcurrency(clients, TICKET_CONCURRENCY, (client) =>
+      getClientTickets(client.id, TICKETS_PER_CLIENT, 0).catch((err) => {
+        console.error(`Falha ao buscar tickets do cliente ${client.id}:`, err.message);
+        return null;
+      })
     );
 
     // Log (só no servidor, nunca na resposta pro navegador — pode conter dados
