@@ -45,16 +45,18 @@ Pra contornar isso sem depender de endpoint não-oficial:
 
 ## Painel: Tickets, Agentes, Chats
 
-**Aba Tickets**: conecta a aplicação OAuth2 (Client ID/Secret/Redirect URI), busca um
-cliente pelo nome e mostra os tickets **desse cliente** em colunas, uma por `stageId`
-(igual ao Kanban da SoftCS). Clique no nome da coluna pra renomear.
+**Aba Tickets**: conecta a aplicação OAuth2 (Client ID/Secret/Redirect URI) e um único
+botão, **"Buscar todos os tickets abertos"**, traz os tickets abertos (`closedAt` nulo) de
+toda a conta, agrupados em colunas por `stageId` (igual ao Kanban da SoftCS). Clique no
+nome da coluna pra renomear.
 
 > Contas grandes têm milhares de clientes (testei numa conta real com mais de 2000) e a
-> SoftCS só lista tickets por cliente — não existe um `/tickets` geral (retorna 404).
-> Escanear todos os clientes numa chamada só estourava o tempo da function e ainda saía
-> incompleto, então a busca é sempre por **um cliente por vez**: digite o nome em "Escolher
-> cliente", clique em "Escolher" no resultado certo, e depois em "Buscar tickets" — traz
-> todos os tickets daquele cliente (pagina internamente até acabar).
+> SoftCS só lista tickets por cliente — não existe um `/tickets` geral (retorna 404) nem um
+> jeito de saber de antemão quais clientes têm ticket aberto. Pra não estourar o tempo da
+> function numa chamada só, `api/discover-tickets.js` escaneia **um lote de 200 clientes
+> por chamada**, e o próprio navegador (`admin.js`) encadeia as chamadas sozinho — sem
+> precisar clicar de novo — até acabar ou você clicar em **Parar**. O board vai se
+> preenchendo lote a lote; uma varredura completa (2000+ clientes) leva alguns minutos.
 
 **Aba Agentes**:
 - **Novo agente**: cadastro manual (ID + `@` + nome opcional).
@@ -112,8 +114,8 @@ Na aba **Tickets**:
 2. Preencha Client ID, Client Secret e Redirect URI no painel e clique em **Salvar**.
 3. Clique em **Conectar** — conclui o fluxo OAuth2 (Authorization Code + PKCE) e salva o
    token no Neon.
-4. Em "Escolher cliente", busque pelo nome, clique em "Escolher" e depois em
-   **Buscar tickets** — mostra o Kanban desse cliente. Renomeie as colunas clicando nelas.
+4. Clique em **Buscar todos os tickets abertos** — o board vai se preenchendo sozinho, lote
+   a lote. Renomeie as colunas clicando nelas.
 
 Na aba **Agentes**, preencha o `@` de cada criador que aparecer em "Criadores
 encontrados" e clique em **Salvar todos preenchidos** (ou cadastre manualmente).
@@ -163,17 +165,17 @@ api/
   settings.js              credenciais OAuth da SoftCS (tabela settings)
   oauth-start.js            passo 1 da conexão OAuth (botão "Conectar")
   oauth-callback.js          passo 2 da conexão OAuth
-  discover-tickets.js         busca todos os tickets de UM cliente (?clientId=), agrupa por estágio
-  search-clients.js             busca cliente por nome, pra alimentar a escolha na aba Tickets
-  stage-labels.js                 nomes das colunas do Kanban (cadastrados manualmente)
-  telegram-test.js                  manda uma mensagem de teste pra um chat_id (botão "Testar")
+  discover-tickets.js         escaneia um lote de clientes (?offset=) e devolve os tickets
+                              abertos deles + se há mais lote (hasMoreClients/nextOffset)
+  stage-labels.js               nomes das colunas do Kanban (cadastrados manualmente)
+  telegram-test.js                manda uma mensagem de teste pra um chat_id (botão "Testar")
 lib/
   db.js                 conexão com o Neon
   agents.js              busca o @username cadastrado pro criador do ticket
   telegram.js             envio de mensagem via Bot API (um chat ou broadcast pra vários)
   settings.js              leitura/escrita da tabela settings
-  softcs-api.js             token OAuth (refresh automático) + chamadas à API da SoftCS (getClient,
-                            getClients com busca por nome, getClientTickets)
+  softcs-api.js             token OAuth (refresh automático) + chamadas à API da SoftCS
+                            (getClients, getClientTickets)
 sql/
   schema.sql            tabelas: agent_mapping, processed_webhook_events, telegram_chats,
                          settings, softcs_oauth_tokens, oauth_pkce_state, stage_labels

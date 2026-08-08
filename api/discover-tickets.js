@@ -1,11 +1,15 @@
 import sql from '../lib/db.js';
-import { getValidAccessToken, getClient, getClientTickets } from '../lib/softcs-api.js';
+import { getValidAccessToken, getClients, getClientTickets } from '../lib/softcs-api.js';
 
-// Busca TODOS os tickets de um único cliente (não escaneia a conta inteira —
-// contas grandes têm milhares de clientes e não existe um "listar tickets de
-// todos" na API da SoftCS). Pagina dentro desse cliente até acabar.
-const PAGE_LIMIT = 200;
-const MAX_PAGES = 20; // até 4000 tickets de um cliente só, generoso o bastante
+// A SoftCS não tem um "listar tickets de todos os clientes" — o endpoint é
+// sempre /clients/{clientId}/tickets. Contas grandes têm milhares de
+// clientes (testado: uma conta real tinha mais de 2000), então cada chamada
+// escaneia UM lote de clientes (`offset`/`limit` na querystring) e diz se há
+// mais — o front chama de novo sozinho, em loop, até acabar ou o usuário
+// clicar em "Parar".
+const CLIENT_PAGE_LIMIT = 200;
+const TICKETS_PER_CLIENT = 200;
+const TICKET_CONCURRENCY = 20;
 
 // A API pagina como { data: [...], pagination: { hasMore, nextOffset } } (a
 // doc menciona "items", mas o servidor real usa "data").
@@ -40,21 +44,20 @@ function extractStage(ticket, stageLabels) {
   };
 }
 
-async function fetchAllTicketsForClient(clientId) {
-  const tickets = [];
-  let offset = 0;
+// Roda `fn` sobre `items` com no máximo `limit` chamadas em paralelo por vez.
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
 
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const response = await getClientTickets(clientId, PAGE_LIMIT, offset);
-    const items = extractItems(response);
-    tickets.push(...items);
-
-    const pagination = response?.pagination;
-    if (items.length < PAGE_LIMIT || !pagination?.hasMore) break;
-    offset = pagination.nextOffset ?? offset + PAGE_LIMIT;
+  async function worker() {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]);
+    }
   }
 
-  return tickets;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 export default async function handler(req, res) {
@@ -63,53 +66,66 @@ export default async function handler(req, res) {
     return;
   }
 
-  const clientId = (req.query?.clientId ?? '').trim();
-  if (!clientId) {
-    res.status(400).json({ error: 'clientId é obrigatório — escolha um cliente na busca acima' });
-    return;
-  }
+  const offset = Number.parseInt(req.query?.offset, 10) || 0;
 
   try {
+    // Verifica o token antes de disparar as chamadas em paralelo — assim um
+    // token expirado vira um erro claro em vez de "0 tickets" sem explicação.
     await getValidAccessToken();
 
-    const [client, rawTickets] = await Promise.all([
-      getClient(clientId),
-      fetchAllTicketsForClient(clientId),
-    ]);
-
-    if (rawTickets.length > 0) {
-      console.log('Exemplo de ticket cru:', JSON.stringify(rawTickets[0]).slice(0, 2000));
-    }
+    const clientsResponse = await getClients(CLIENT_PAGE_LIMIT, offset);
+    const clients = extractItems(clientsResponse);
+    const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
+    const clientPagination = clientsResponse?.pagination;
 
     const stageLabelRows = await sql`select stage_id, label from stage_labels`;
     const stageLabels = Object.fromEntries(stageLabelRows.map((r) => [r.stage_id, r.label]));
+
+    const ticketLists = await mapWithConcurrency(clients, TICKET_CONCURRENCY, (client) =>
+      getClientTickets(client.id, TICKETS_PER_CLIENT, 0).catch((err) => {
+        console.error(`Falha ao buscar tickets do cliente ${client.id}:`, err.message);
+        return null;
+      })
+    );
 
     const tickets = [];
     const creatorsById = new Map();
     let hasNames = false;
 
-    for (const ticket of rawTickets) {
-      const creator = extractCreator(ticket);
-      if (creator?.name) hasNames = true;
-      if (creator && !creatorsById.has(creator.id)) creatorsById.set(creator.id, creator);
+    for (const ticketsResponse of ticketLists) {
+      if (!ticketsResponse) continue;
+      const items = extractItems(ticketsResponse);
+      for (const ticket of items) {
+        if (ticket.closedAt) continue; // só tickets abertos
 
-      tickets.push({
-        id: ticket.id,
-        publicId: ticket.publicId ?? null,
-        title: ticket.title ?? '(sem título)',
-        priority: ticket.priority ?? null,
-        clientName: ticket.denormalizedMainClient?.name ?? ticket.mainClient?.name ?? client.name ?? null,
-        createdAt: ticket.createdAt ?? null,
-        createdBy: creator,
-        stage: extractStage(ticket, stageLabels),
-      });
+        const creator = extractCreator(ticket);
+        if (creator?.name) hasNames = true;
+        if (creator && !creatorsById.has(creator.id)) creatorsById.set(creator.id, creator);
+
+        tickets.push({
+          id: ticket.id,
+          publicId: ticket.publicId ?? null,
+          title: ticket.title ?? '(sem título)',
+          priority: ticket.priority ?? null,
+          clientName:
+            ticket.denormalizedMainClient?.name ??
+            ticket.mainClient?.name ??
+            clientNameById.get(ticket.mainClientId) ??
+            null,
+          createdAt: ticket.createdAt ?? null,
+          createdBy: creator,
+          stage: extractStage(ticket, stageLabels),
+        });
+      }
     }
 
     res.status(200).json({
-      clientName: client.name,
       tickets,
       creators: [...creatorsById.values()],
+      clientsScanned: clients.length,
       hasNames,
+      hasMoreClients: Boolean(clientPagination?.hasMore),
+      nextOffset: clientPagination?.nextOffset ?? offset + clients.length,
     });
   } catch (error) {
     console.error('Erro buscando tickets na SoftCS:', error);

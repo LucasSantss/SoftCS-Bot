@@ -18,7 +18,6 @@ const routes = {
   '/api/discover-tickets': () => import('./api/discover-tickets.js'),
   '/api/telegram-test': () => import('./api/telegram-test.js'),
   '/api/stage-labels': () => import('./api/stage-labels.js'),
-  '/api/search-clients': () => import('./api/search-clients.js'),
 };
 
 function augmentResponse(res) {

@@ -317,82 +317,83 @@ function renderKanban(tickets) {
   }
 }
 
-// ─── Escolher cliente ───────────────────────────────────────────────────────
+// ─── Busca automática (um botão só) ─────────────────────────────────────────
 // A SoftCS não tem "listar tickets de todos os clientes" e essa conta tem
-// milhares de clientes — em vez de escanear tudo, busca um cliente pelo nome
-// e traz só os tickets dele.
-const clientSearchInput = document.getElementById("clientSearchInput");
-const clientSearchBtn = document.getElementById("clientSearchBtn");
-const clientResults = document.getElementById("clientResults");
-const selectedClientLabel = document.getElementById("selectedClientLabel");
+// milhares de clientes — então a gente varre em lotes de 200, e o próprio
+// navegador encadeia as chamadas sozinho (sem precisar clicar de novo) até
+// acabar ou o usuário clicar em "Parar". Cada chamada individual fica rápida
+// o bastante pra não estourar o tempo da function.
+const stopDiscoverBtn = document.getElementById("stopDiscoverBtn");
 
-let selectedClient = null;
 let lastCreators = [];
+let stopRequested = false;
 
-function selectClient(client) {
-  selectedClient = client;
-  selectedClientLabel.textContent = client.name;
-  selectedClientLabel.className = "badge on";
-  discoverBtn.disabled = false;
-  clientResults.innerHTML = "";
+function updateDiscoverProgress({ ticketCount, creatorCount, clientsScanned, hasNames, done }) {
+  const namesNote = hasNames === false ? " (API não retornou nome/e-mail do criador — só o ID)" : "";
+  const doneNote = done ? "Concluído." : "Buscando…";
+  setStatus(
+    discoverStatus,
+    `${doneNote} ${ticketCount} ticket(s) aberto(s) em ${clientsScanned} cliente(s) verificados, ${creatorCount} criador(es) único(s).${namesNote}`,
+    false
+  );
 }
 
-async function searchClients() {
-  const q = clientSearchInput.value.trim();
-  if (!q) return;
-  clientResults.innerHTML = '<p class="muted">Buscando…</p>';
-  try {
-    const data = await api(`/api/search-clients?q=${encodeURIComponent(q)}`);
-    clientResults.innerHTML = "";
-    if (data.clients.length === 0) {
-      clientResults.innerHTML = '<p class="muted">Nenhum cliente encontrado.</p>';
-      return;
-    }
-    for (const client of data.clients) {
-      const row = document.createElement("div");
-      row.className = "list-item";
-      row.innerHTML = `<div class="list-item-main"><span class="list-item-title"></span></div>
-        <div class="list-item-actions"><button class="btn btn-secondary">Escolher</button></div>`;
-      row.querySelector(".list-item-title").textContent = client.name;
-      row.querySelector("button").addEventListener("click", () => selectClient(client));
-      clientResults.appendChild(row);
-    }
-  } catch (err) {
-    setStatus(discoverStatus, err.message, true);
-  }
-}
-
-clientSearchBtn.addEventListener("click", searchClients);
-clientSearchInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") searchClients();
-});
-
-discoverBtn.addEventListener("click", async () => {
-  if (!selectedClient) return;
+async function runDiscoverLoop() {
   discoverBtn.disabled = true;
-  kanbanBoard.innerHTML = "";
-  setStatus(discoverStatus, `Buscando tickets de "${selectedClient.name}"…`, false);
-  try {
-    const data = await api(`/api/discover-tickets?clientId=${encodeURIComponent(selectedClient.id)}`);
-    lastCreators = data.creators;
+  stopDiscoverBtn.style.display = "inline-flex";
+  stopRequested = false;
 
-    if (data.tickets.length === 0) {
-      setStatus(discoverStatus, `Nenhum ticket encontrado pra "${data.clientName}".`, true);
-    } else {
-      const namesNote = data.hasNames ? "" : " (API não retornou nome/e-mail do criador — só o ID)";
-      setStatus(
-        discoverStatus,
-        `${data.tickets.length} ticket(s) em "${data.clientName}", ${data.creators.length} criador(es) único(s).${namesNote}`,
-        !data.hasNames
-      );
+  kanbanBoard.innerHTML = "";
+  const allTickets = [];
+  const allCreatorsById = new Map();
+  let clientsScanned = 0;
+  let offset = 0;
+  let hasNames = false;
+
+  try {
+    while (!stopRequested) {
+      const data = await api(`/api/discover-tickets?offset=${offset}`);
+
+      allTickets.push(...data.tickets);
+      for (const creator of data.creators) {
+        if (!allCreatorsById.has(creator.id)) allCreatorsById.set(creator.id, creator);
+      }
+      clientsScanned += data.clientsScanned;
+      if (data.hasNames) hasNames = true;
+
+      lastCreators = [...allCreatorsById.values()];
+      renderKanban(allTickets);
+      renderCreators(lastCreators);
+      updateDiscoverProgress({
+        ticketCount: allTickets.length,
+        creatorCount: lastCreators.length,
+        clientsScanned,
+        hasNames,
+        done: false,
+      });
+
+      if (!data.hasMoreClients) break;
+      offset = data.nextOffset;
     }
-    renderKanban(data.tickets);
-    renderCreators(lastCreators);
+
+    updateDiscoverProgress({
+      ticketCount: allTickets.length,
+      creatorCount: lastCreators.length,
+      clientsScanned,
+      hasNames,
+      done: true,
+    });
   } catch (err) {
     setStatus(discoverStatus, err.message, true);
   } finally {
     discoverBtn.disabled = false;
+    stopDiscoverBtn.style.display = "none";
   }
+}
+
+discoverBtn.addEventListener("click", runDiscoverLoop);
+stopDiscoverBtn.addEventListener("click", () => {
+  stopRequested = true;
 });
 
 // ─── Chats ──────────────────────────────────────────────────────────────────
