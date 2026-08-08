@@ -92,7 +92,7 @@ export default async function handler(req, res) {
     if (chatIds.length > 0) {
       await broadcastTelegramMessage(chatIds, buildMessage({ title, priority, publicId, clientName, mention }));
     } else {
-      console.warn('Nenhum chat ativo em telegram_chats — cadastre em /admin.html');
+      console.warn('Nenhum chat ativo em telegram_chats — cadastre em / (raiz do domínio)');
     }
 
     await markProcessed(eventId);

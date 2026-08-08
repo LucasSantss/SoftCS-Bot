@@ -6,12 +6,12 @@ o ID de usuário da SoftCS e o `@username` no Telegram. Não usa a API autentica
 em nenhum momento — só recebe o POST do webhook e monta a mensagem com o que vier nele.
 
 Só existem duas variáveis de ambiente: `DATABASE_URL` e `TELEGRAM_BOT_TOKEN`. O mapeamento
-de agentes e os chats do Telegram são cadastrados depois do deploy em `/admin.html`, e
-ficam salvos no Neon.
+de agentes e os chats do Telegram são cadastrados depois do deploy direto na URL do
+domínio (`index.html`), e ficam salvos no Neon.
 
-> ⚠️ **`/admin.html` não tem senha nenhuma** — foi uma escolha deliberada (uso pessoal, sem
-> fricção de login). Qualquer pessoa com a URL consegue ver e editar os agentes e chats
-> cadastrados. Não divulgue essa URL.
+> ⚠️ **O painel não tem senha nenhuma** — foi uma escolha deliberada (uso pessoal, sem
+> fricção de login). Qualquer pessoa com a URL do domínio consegue ver e editar os agentes
+> e chats cadastrados. Não divulgue essa URL.
 
 > ⚠️ **Pendência conhecida**: o parser em [api/webhook.js](api/webhook.js) foi escrito
 > com um formato de payload provisório (`{ event, eventId, data: { title, priority,
@@ -24,8 +24,8 @@ ficam salvos no Neon.
 
 A API pública da SoftCS não tem um recurso `users`/`agents`, e o payload do ticket só traz
 `createdById` (um ID opaco, sem nome/e-mail/username). Por isso o mapeamento é preenchido à
-mão em `/admin.html`: identifique quem é o criador de cada ticket (olhando na SoftCS) e
-cadastre o ID correspondente lá.
+mão no painel: identifique quem é o criador de cada ticket (olhando na SoftCS) e cadastre
+o ID correspondente lá.
 
 ## Setup
 
@@ -48,9 +48,10 @@ npm install
 npx vercel        # ou: conectar o repo pela dashboard da Vercel
 ```
 
-### 4. Cadastrar agentes e chats em /admin.html
+### 4. Cadastrar agentes e chats
 
-Acesse `https://SEU-DOMINIO.vercel.app/admin.html`.
+Acesse `https://SEU-DOMINIO.vercel.app/` — o painel é a própria raiz do domínio
+(`index.html`), não precisa de nenhum caminho extra.
 
 - Aba **Agentes**: ID do usuário na SoftCS → `@username` no Telegram.
 - Aba **Chats**: cada grupo/canal que deve receber as notificações. Descubra o `chat_id`
@@ -86,7 +87,7 @@ Usa `node --env-file=.env`, então só precisa do `.env` com `DATABASE_URL` e
 ## Estrutura
 
 ```
-admin.html            painel único (sem login): abas Agentes e Chats
+index.html            painel único (sem login), servido na raiz do domínio: abas Agentes e Chats
 admin.css              visual baseado no design system do CodeRise Hub
 admin.js                lógica das 2 abas (fetch nas APIs abaixo)
 api/

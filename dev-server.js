@@ -73,7 +73,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const filePath = url.pathname === '/' ? '/admin.html' : url.pathname;
+  const filePath = url.pathname === '/' ? '/index.html' : url.pathname;
   try {
     const data = await readFile(path.join(__dirname, filePath));
     const ext = path.extname(filePath);
