@@ -59,8 +59,8 @@
             <h3>Conectar com a SoftCS</h3>
             <div id="connectBox">
               <p class="muted">
-                Conecte a aplicação OAuth2 da SoftCS pra consultar os tickets (título,
-                cliente, coluna do Kanban e quem criou).
+                Conecte a aplicação OAuth2 da SoftCS pra consultar os tickets de um cliente
+                (título, coluna do Kanban e quem criou).
               </p>
               <div class="form-grid">
                 <div>
@@ -82,10 +82,18 @@
                 <span id="connectionStatus" class="badge off">não conectado</span>
               </div>
             </div>
+          </div>
 
+          <div class="card">
+            <h3>Escolher cliente</h3>
+            <div class="create-row">
+              <input type="text" id="clientSearchInput" placeholder="Buscar cliente pelo nome…" />
+              <button type="button" id="clientSearchBtn" class="btn btn-secondary">Buscar</button>
+            </div>
+            <div class="list" id="clientResults"></div>
             <div class="form-actions" style="margin-top: 0.75rem;">
-              <button type="button" id="discoverBtn" class="btn btn-primary">Buscar tickets</button>
-              <button type="button" id="loadMoreBtn" class="btn btn-secondary" style="display:none">Carregar mais clientes</button>
+              <span id="selectedClientLabel" class="badge off">nenhum cliente escolhido</span>
+              <button type="button" id="discoverBtn" class="btn btn-primary" disabled>Buscar tickets</button>
             </div>
             <p id="discoverStatus" class="status-line"></p>
           </div>
