@@ -24,3 +24,12 @@ create table if not exists processed_webhook_events (
   event_id text primary key,
   received_at timestamptz not null default now()
 );
+
+-- Grupos/canais do Telegram que devem receber a notificação de cada ticket novo.
+-- Gerenciado pela página admin.html (protegida por ADMIN_SECRET).
+create table if not exists telegram_chats (
+  chat_id text primary key,
+  label text,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);

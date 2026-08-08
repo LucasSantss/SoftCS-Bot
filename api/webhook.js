@@ -1,6 +1,6 @@
 import sql from '../lib/db.js';
 import { getTicket, getClient, getTelegramMention } from '../lib/softcs.js';
-import { sendTelegramMessage, escapeHtml } from '../lib/telegram.js';
+import { broadcastTelegramMessage, escapeHtml } from '../lib/telegram.js';
 
 const PRIORITY_LABELS = {
   P0: '🔴 P0 (crítico)',
@@ -40,6 +40,11 @@ async function markProcessed(eventId) {
     insert into processed_webhook_events (event_id) values (${eventId})
     on conflict (event_id) do nothing
   `;
+}
+
+async function getActiveChatIds() {
+  const rows = await sql`select chat_id from telegram_chats where active = true`;
+  return rows.map((row) => row.chat_id);
 }
 
 function buildMessage({ ticket, client, mention }) {
@@ -97,8 +102,14 @@ export default async function handler(req, res) {
 
     const client = clientId ? await getClient(clientId).catch(() => null) : null;
     const mention = await getTelegramMention(ticket.createdById);
+    const chatIds = await getActiveChatIds();
 
-    await sendTelegramMessage(buildMessage({ ticket, client, mention }));
+    if (chatIds.length > 0) {
+      await broadcastTelegramMessage(chatIds, buildMessage({ ticket, client, mention }));
+    } else {
+      console.warn('Nenhum chat ativo em telegram_chats — cadastre em /admin.html');
+    }
+
     await markProcessed(eventId);
 
     res.status(200).json({ ok: true });

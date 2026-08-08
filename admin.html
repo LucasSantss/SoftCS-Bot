@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SoftCS Bot — Chats do Telegram</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+    max-width: 640px;
+    margin: 40px auto;
+    padding: 0 16px;
+    color: #1a1a1a;
+    background: #fafafa;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #eee; background: #14141a; }
+    input, table { background: #1f1f28; color: #eee; border-color: #333; }
+    th { background: #22222c; }
+    tr:hover { background: #22222c; }
+  }
+  h1 { font-size: 1.3rem; }
+  form { display: flex; gap: 8px; margin: 20px 0; flex-wrap: wrap; }
+  input { padding: 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.95rem; }
+  input[name="chat_id"] { width: 180px; }
+  input[name="label"] { flex: 1; min-width: 160px; }
+  button { padding: 8px 14px; border: none; border-radius: 6px; background: #2563eb; color: #fff; cursor: pointer; font-size: 0.95rem; }
+  button:hover { background: #1d4ed8; }
+  button.danger { background: #dc2626; }
+  button.danger:hover { background: #b91c1c; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; font-size: 0.9rem; }
+  .muted { color: #888; font-size: 0.85rem; }
+  .status { font-size: 0.85rem; margin-top: 8px; min-height: 1.2em; }
+  .status.error { color: #dc2626; }
+  .status.ok { color: #16a34a; }
+</style>
+</head>
+<body>
+  <h1>Chats do Telegram</h1>
+  <p class="muted">Grupos/canais que recebem a notificação de cada ticket novo da SoftCS.</p>
+
+  <form id="add-form">
+    <input name="chat_id" placeholder="chat_id (ex: -1001234567890)" required />
+    <input name="label" placeholder="rótulo (ex: Suporte N1)" />
+    <button type="submit">Adicionar</button>
+  </form>
+
+  <p id="status" class="status"></p>
+
+  <table>
+    <thead>
+      <tr><th>Rótulo</th><th>chat_id</th><th>Ativo</th><th></th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const rowsEl = document.getElementById('rows');
+    const form = document.getElementById('add-form');
+
+    function getSecret() {
+      let secret = sessionStorage.getItem('admin_secret');
+      if (!secret) {
+        secret = prompt('Senha de administração (ADMIN_SECRET):') || '';
+        sessionStorage.setItem('admin_secret', secret);
+      }
+      return secret;
+    }
+
+    async function api(path, options = {}) {
+      const res = await fetch(path, {
+        ...options,
+        headers: {
+          ...(options.headers || {}),
+          'x-admin-secret': getSecret(),
+        },
+      });
+      if (res.status === 401) {
+        sessionStorage.removeItem('admin_secret');
+        throw new Error('Senha incorreta — recarregue a página e tente de novo.');
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `erro ${res.status}`);
+      }
+      return res.status === 204 ? null : res.json();
+    }
+
+    function setStatus(message, isError) {
+      statusEl.textContent = message;
+      statusEl.className = 'status ' + (isError ? 'error' : 'ok');
+    }
+
+    async function load() {
+      rowsEl.innerHTML = '<tr><td colspan="4" class="muted">Carregando…</td></tr>';
+      try {
+        const chats = await api('/api/chats');
+        if (chats.length === 0) {
+          rowsEl.innerHTML = '<tr><td colspan="4" class="muted">Nenhum chat cadastrado ainda.</td></tr>';
+          return;
+        }
+        rowsEl.innerHTML = '';
+        for (const chat of chats) {
+          const tr = document.createElement('tr');
+
+          const labelTd = document.createElement('td');
+          labelTd.textContent = chat.label || '(sem rótulo)';
+
+          const idTd = document.createElement('td');
+          idTd.textContent = chat.chat_id;
+
+          const activeTd = document.createElement('td');
+          const toggle = document.createElement('input');
+          toggle.type = 'checkbox';
+          toggle.checked = chat.active;
+          toggle.addEventListener('change', async () => {
+            try {
+              await api('/api/chats', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: chat.chat_id, active: toggle.checked }),
+              });
+              setStatus('Atualizado.', false);
+            } catch (err) {
+              setStatus(err.message, true);
+              toggle.checked = !toggle.checked;
+            }
+          });
+          activeTd.appendChild(toggle);
+
+          const actionsTd = document.createElement('td');
+          const delBtn = document.createElement('button');
+          delBtn.textContent = 'Remover';
+          delBtn.className = 'danger';
+          delBtn.addEventListener('click', async () => {
+            if (!confirm(`Remover "${chat.label || chat.chat_id}"?`)) return;
+            try {
+              await api(`/api/chats?chat_id=${encodeURIComponent(chat.chat_id)}`, { method: 'DELETE' });
+              await load();
+              setStatus('Removido.', false);
+            } catch (err) {
+              setStatus(err.message, true);
+            }
+          });
+          actionsTd.appendChild(delBtn);
+
+          tr.append(labelTd, idTd, activeTd, actionsTd);
+          rowsEl.appendChild(tr);
+        }
+      } catch (err) {
+        rowsEl.innerHTML = '';
+        setStatus(err.message, true);
+      }
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const chat_id = data.get('chat_id').trim();
+      const label = data.get('label').trim();
+      try {
+        await api('/api/chats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id, label }),
+        });
+        form.reset();
+        setStatus('Adicionado.', false);
+        await load();
+      } catch (err) {
+        setStatus(err.message, true);
+      }
+    });
+
+    load();
+  </script>
+</body>
+</html>
