@@ -29,7 +29,10 @@ export default async function handler(req, res) {
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
-    scope: 'openid offline_access tickets:read clients:read',
+    // Sem openid/offline_access de propósito: essa busca é acionada manualmente
+    // (botão "Buscar tickets"), não precisa de refresh_token. Pedir só o que a
+    // aplicação de fato tem habilitado evita invalid_scope.
+    scope: 'tickets:read clients:read',
     state,
     code_challenge: challenge,
     code_challenge_method: 'S256',

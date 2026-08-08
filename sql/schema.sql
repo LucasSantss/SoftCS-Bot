@@ -32,16 +32,21 @@ create table if not exists settings (
   updated_at timestamptz not null default now()
 );
 
--- Guarda o par access_token/refresh_token do OAuth da SoftCS.
--- Linha única (id sempre 1); o token é renovado automaticamente antes de expirar.
+-- Guarda o access_token do OAuth da SoftCS (e o refresh_token, se a aplicação
+-- tiver o escopo offline_access habilitado — sem ele, refresh_token fica nulo
+-- e é preciso clicar em "Conectar" de novo quando o access_token expirar).
+-- Linha única (id sempre 1).
 create table if not exists softcs_oauth_tokens (
   id integer primary key default 1,
   access_token text not null,
-  refresh_token text not null,
+  refresh_token text,
   expires_at timestamptz not null,
   updated_at timestamptz not null default now(),
   constraint single_row check (id = 1)
 );
+
+-- Caso a tabela já existisse de uma versão anterior com refresh_token not null.
+alter table softcs_oauth_tokens alter column refresh_token drop not null;
 
 -- Estado temporário do fluxo OAuth (Authorization Code + PKCE), usado só entre
 -- /api/oauth-start e /api/oauth-callback. Fica no banco (não em cookie) porque

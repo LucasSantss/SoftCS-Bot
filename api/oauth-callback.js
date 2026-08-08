@@ -70,7 +70,7 @@ export default async function handler(req, res) {
 
   await sql`
     insert into softcs_oauth_tokens (id, access_token, refresh_token, expires_at)
-    values (1, ${tokens.access_token}, ${tokens.refresh_token}, ${expiresAt})
+    values (1, ${tokens.access_token}, ${tokens.refresh_token ?? null}, ${expiresAt})
     on conflict (id) do update set
       access_token = excluded.access_token,
       refresh_token = excluded.refresh_token,
