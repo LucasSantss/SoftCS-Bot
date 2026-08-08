@@ -9,16 +9,6 @@
 </head>
 <body>
 
-  <div id="loginModal" class="modal-overlay">
-    <div class="modal">
-      <h2>SoftCS Bot</h2>
-      <p class="muted" id="loginHint">Cole a senha de administrador.</p>
-      <input id="adminKeyInput" type="password" placeholder="Senha de administrador" autocomplete="off" />
-      <div id="loginError" class="field-error" style="display:none"></div>
-      <button id="loginBtn" class="btn btn-primary" style="width:100%">Entrar</button>
-    </div>
-  </div>
-
   <div class="app">
     <aside class="sidebar">
       <div class="sidebar-brand">
@@ -57,7 +47,7 @@
       <header class="topbar">
         <div>
           <h1 id="topbarTitle">Configurações</h1>
-          <p class="muted" id="topbarSub">Credenciais OAuth2 da SoftCS e senha deste painel</p>
+          <p class="muted" id="topbarSub">Credenciais OAuth2 da SoftCS</p>
         </div>
       </header>
 
@@ -69,10 +59,6 @@
             <h3>Aplicação OAuth2 da SoftCS</h3>
             <form id="settingsForm">
               <div class="form-grid">
-                <div class="full">
-                  <label class="field-label">Senha de admin (protege este painel)</label>
-                  <input name="admin_secret" type="text" placeholder="escolha uma senha" />
-                </div>
                 <div>
                   <label class="field-label">Client ID</label>
                   <input name="softcs_client_id" type="text" />

@@ -188,18 +188,6 @@ input::placeholder { color: var(--muted-foreground); }
 .status-line.error { color: var(--destructive); }
 .status-line.ok { color: var(--success); }
 
-/* ─── Modal (login) ─── */
-.modal-overlay {
-  position: fixed; inset: 0; background: hsl(230 32% 3% / 0.85);
-  display: flex; align-items: center; justify-content: center; z-index: 50;
-}
-.modal {
-  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 1.75rem; width: 340px; display: flex; flex-direction: column; gap: 0.75rem;
-}
-.modal h2 { font-size: 1.15rem; }
-.field-error { color: var(--destructive); font-size: 0.78rem; }
-
 @media (max-width: 720px) {
   .sidebar { display: none; }
   .content { padding: 1rem; }

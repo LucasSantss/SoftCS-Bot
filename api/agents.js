@@ -1,13 +1,6 @@
 import sql from '../lib/db.js';
-import { checkAdmin } from '../lib/auth.js';
 
 export default async function handler(req, res) {
-  const { authorized } = await checkAdmin(req);
-  if (!authorized) {
-    res.status(401).json({ error: 'unauthorized' });
-    return;
-  }
-
   if (req.method === 'GET') {
     const rows = await sql`
       select softcs_user_id, telegram_username, display_name, updated_at

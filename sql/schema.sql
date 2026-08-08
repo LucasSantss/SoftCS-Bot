@@ -26,7 +26,7 @@ create table if not exists processed_webhook_events (
 );
 
 -- Grupos/canais do Telegram que devem receber a notificação de cada ticket novo.
--- Gerenciado pela página admin.html (protegida por ADMIN_SECRET).
+-- Gerenciado pela página /admin.html.
 create table if not exists telegram_chats (
   chat_id text primary key,
   label text,
@@ -45,10 +45,9 @@ create table if not exists oauth_pkce_state (
 );
 
 -- Configuração da integração, editável pelo /admin.html: credenciais OAuth da
--- SoftCS, secret do webhook e a senha de acesso ao próprio /admin.html.
--- Único lugar de configuração além de DATABASE_URL e TELEGRAM_BOT_TOKEN (esses
--- dois continuam como env var, por serem necessários antes de qualquer consulta
--- ao banco ser possível).
+-- SoftCS e o secret do webhook. Único lugar de configuração além de
+-- DATABASE_URL e TELEGRAM_BOT_TOKEN (esses dois continuam como env var, por
+-- serem necessários antes de qualquer consulta ao banco ser possível).
 create table if not exists settings (
   key text primary key,
   value text not null,

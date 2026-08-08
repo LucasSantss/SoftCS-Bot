@@ -5,8 +5,13 @@ Telegram, mencionando quem criou o ticket (`@username`), usando um mapeamento ma
 o ID de usuário da SoftCS e o `@username` no Telegram.
 
 Só existem duas variáveis de ambiente: `DATABASE_URL` e `TELEGRAM_BOT_TOKEN`. Tudo o mais
-(credenciais OAuth2 da SoftCS, senha do painel, mapeamento de agentes, chats do Telegram) é
-cadastrado depois do deploy em `/admin.html`, e fica salvo no Neon.
+(credenciais OAuth2 da SoftCS, mapeamento de agentes, chats do Telegram) é cadastrado
+depois do deploy em `/admin.html`, e fica salvo no Neon.
+
+> ⚠️ **`/admin.html` não tem senha nenhuma** — foi uma escolha deliberada (uso pessoal, sem
+> fricção de login). Qualquer pessoa com a URL consegue ver e editar tudo por lá, incluindo
+> o `client_secret` da SoftCS. Não divulgue essa URL; se isso passar a incomodar, dá pra
+> reintroduzir autenticação depois.
 
 > ⚠️ **Pendência conhecida**: o parser em [api/webhook.js](api/webhook.js) foi escrito
 > com um formato de payload provisório (`{ event, eventId, data: { ... } }`), pois a
@@ -47,14 +52,10 @@ npx vercel        # ou: conectar o repo pela dashboard da Vercel
 
 ### 4. Configurar tudo em /admin.html
 
-Acesse `https://SEU-DOMINIO.vercel.app/admin.html`. **Faça isso logo após o primeiro
-deploy** — enquanto nenhuma senha de admin foi salva, o painel fica aberto para
-qualquer um que tiver a URL (é assim que dá pra configurar sem nenhuma env var extra;
-depois que você salvar uma senha, ela passa a ser exigida em todo acesso).
+Acesse `https://SEU-DOMINIO.vercel.app/admin.html`.
 
-Na seção **Configurações**, preencha:
+Na aba **Configurações**, preencha:
 
-- **Senha de admin** — qualquer senha seguem, protege o resto do painel.
 - **Client ID** / **Client Secret** — da aplicação OAuth2 criada em Configurações >
   Aplicações no painel da SoftCS.
 - **Redirect URI** — `https://SEU-DOMINIO.vercel.app/api/oauth-callback` (precisa ser
@@ -65,7 +66,7 @@ Clique em **Salvar configurações** e depois em **Autorizar no SoftCS** — iss
 fluxo OAuth2 (Authorization Code + PKCE) e salva o token no Neon. Os próximos refreshes
 são automáticos (`lib/softcs.js`).
 
-Nas seções **Agentes** e **Chats do Telegram**, cadastre:
+Nas abas **Agentes** e **Chats**, cadastre:
 
 - Cada agente: ID do usuário na SoftCS → `@username` no Telegram.
 - Cada grupo/canal que deve receber as notificações: descubra o `chat_id` enviando uma
@@ -104,10 +105,12 @@ quanto na aplicação OAuth2 da SoftCS.
 ## Estrutura
 
 ```
-admin.html            painel único: configurações, agentes e chats do Telegram
+admin.html            painel único (sem login): abas Configurações, Agentes, Chats
+admin.css              visual baseado no design system do CodeRise Hub
+admin.js                lógica das 3 abas (fetch nas APIs abaixo)
 api/
   webhook.js           endpoint que a SoftCS chama a cada evento de ticket
-  settings.js           credenciais OAuth da SoftCS + senha do admin (tabela settings)
+  settings.js           credenciais OAuth da SoftCS (tabela settings)
   agents.js              CRUD do mapeamento agente SoftCS -> @telegram
   chats.js                CRUD dos chats do Telegram
   oauth-start.js          passo 1 da autorização OAuth
@@ -115,9 +118,8 @@ api/
 lib/
   db.js                conexão com o Neon
   settings.js           leitura/escrita da tabela settings
-  auth.js                checagem da senha de admin (com bootstrap no primeiro acesso)
-  softcs.js               token OAuth (refresh automático) + chamadas à API SoftCS
-  telegram.js              envio de mensagem via Bot API (um chat ou broadcast pra vários)
+  softcs.js              token OAuth (refresh automático) + chamadas à API SoftCS
+  telegram.js             envio de mensagem via Bot API (um chat ou broadcast pra vários)
 sql/
   schema.sql            tabelas: agent_mapping, softcs_oauth_tokens, processed_webhook_events,
                          telegram_chats, oauth_pkce_state, settings

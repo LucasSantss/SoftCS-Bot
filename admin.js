@@ -1,12 +1,8 @@
-const STORAGE_KEY = "softcs_bot_admin_key";
-let adminKey = localStorage.getItem(STORAGE_KEY) || "";
-
 async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      "x-admin-secret": adminKey,
       ...(options.headers || {}),
     },
   });
@@ -15,53 +11,6 @@ async function api(path, options = {}) {
   return data;
 }
 
-// ─── Login ──────────────────────────────────────────────────────────────────
-const loginModal = document.getElementById("loginModal");
-const adminKeyInput = document.getElementById("adminKeyInput");
-const loginError = document.getElementById("loginError");
-const loginHint = document.getElementById("loginHint");
-
-async function trySession() {
-  try {
-    const settings = await api("/api/settings");
-    if (settings.bootstrap && !adminKey) {
-      // Primeiro acesso: ainda não existe senha salva, então qualquer uma serve
-      // pra entrar — ela só "gruda" de verdade quando salva na aba Configurações.
-      showLogin(true);
-      return;
-    }
-    loginModal.style.display = "none";
-    boot();
-  } catch {
-    showLogin(false);
-  }
-}
-
-function showLogin(isBootstrap) {
-  loginHint.textContent = isBootstrap
-    ? "Primeiro acesso: escolha a senha que vai proteger este painel."
-    : "Cole a senha de administrador definida na aba Configurações.";
-  loginModal.style.display = "flex";
-  adminKeyInput.focus();
-}
-
-document.getElementById("loginBtn").addEventListener("click", async () => {
-  adminKey = adminKeyInput.value.trim();
-  loginError.style.display = "none";
-  try {
-    await api("/api/settings");
-    localStorage.setItem(STORAGE_KEY, adminKey);
-    loginModal.style.display = "none";
-    boot();
-  } catch (err) {
-    loginError.textContent = "Senha inválida.";
-    loginError.style.display = "block";
-  }
-});
-adminKeyInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") document.getElementById("loginBtn").click();
-});
-
 // ─── Abas ───────────────────────────────────────────────────────────────────
 const navItems = document.querySelectorAll(".nav-item");
 const tabPanels = document.querySelectorAll(".tab-panel");
@@ -69,7 +18,7 @@ const topbarTitle = document.getElementById("topbarTitle");
 const topbarSub = document.getElementById("topbarSub");
 
 const TAB_META = {
-  settings: { title: "Configurações", sub: "Credenciais OAuth2 da SoftCS e senha deste painel" },
+  settings: { title: "Configurações", sub: "Credenciais OAuth2 da SoftCS" },
   agents: { title: "Agentes", sub: "Mapeamento entre usuário SoftCS e @username no Telegram" },
   chats: { title: "Chats do Telegram", sub: "Grupos e canais que recebem a notificação de cada ticket" },
 };
@@ -102,10 +51,6 @@ async function loadSettings() {
       const input = settingsForm.elements[key];
       if (input) input.value = value;
     }
-    // Nenhuma senha salva ainda: sugere a que foi digitada no login como ponto de partida.
-    if (!settingsForm.elements.admin_secret.value && adminKey) {
-      settingsForm.elements.admin_secret.value = adminKey;
-    }
     oauthDot.classList.toggle("on", data.oauth_connected);
     oauthDot.classList.toggle("off", !data.oauth_connected);
     oauthSub.textContent = data.oauth_connected ? "Integração SoftCS conectada" : "Integração SoftCS pendente";
@@ -119,10 +64,6 @@ settingsForm.addEventListener("submit", async (event) => {
   const data = Object.fromEntries(new FormData(settingsForm));
   try {
     await api("/api/settings", { method: "POST", body: JSON.stringify(data) });
-    if (data.admin_secret) {
-      adminKey = data.admin_secret;
-      localStorage.setItem(STORAGE_KEY, adminKey);
-    }
     setStatus(settingsStatus, "Configurações salvas.", false);
     await loadSettings();
   } catch (err) {
@@ -275,4 +216,4 @@ function boot() {
   loadChats();
 }
 
-trySession();
+boot();
