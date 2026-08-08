@@ -8,7 +8,7 @@ function base64url(buffer) {
 
 // Passo 1 do fluxo OAuth (Authorization Code + PKCE), acionado pelo botão
 // "Conectar" na aba Agentes. Usado só pra alimentar a busca de tickets em
-// /api/discover-creators — o webhook não depende disso.
+// /api/discover-tickets — o webhook não depende disso.
 export default async function handler(req, res) {
   const clientId = await getSetting('softcs_client_id');
   const redirectUri = await getSetting('softcs_redirect_uri');
@@ -29,10 +29,11 @@ export default async function handler(req, res) {
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
-    // Sem openid/offline_access de propósito: essa busca é acionada manualmente
-    // (botão "Buscar tickets"), não precisa de refresh_token. Pedir só o que a
-    // aplicação de fato tem habilitado evita invalid_scope.
-    scope: 'tickets:read clients:read',
+    // offline_access é o que garante o refresh_token (senão o access_token expira
+    // em ~1h e é preciso clicar em Conectar toda vez). Precisa estar habilitado em
+    // Identidade > "Continuar conectada mesmo após sair" na aplicação da SoftCS,
+    // senão volta o invalid_scope.
+    scope: 'tickets:read clients:read offline_access',
     state,
     code_challenge: challenge,
     code_challenge_method: 'S256',

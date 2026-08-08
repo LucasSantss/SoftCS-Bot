@@ -261,6 +261,8 @@ function renderChatRow(chat) {
       <span class="list-item-sub"></span>
     </div>
     <div class="list-item-actions">
+      <span class="test-result status-line"></span>
+      <button class="btn btn-secondary test-btn">Testar</button>
       <label class="switch">
         <input type="checkbox" />
         <span class="switch-track"></span>
@@ -270,6 +272,23 @@ function renderChatRow(chat) {
   `;
   row.querySelector(".list-item-title").textContent = chat.label || "(sem rótulo)";
   row.querySelector(".list-item-sub").textContent = chat.chat_id;
+
+  const testResult = row.querySelector(".test-result");
+  row.querySelector(".test-btn").addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    testResult.textContent = "";
+    try {
+      await api("/api/telegram-test", { method: "POST", body: JSON.stringify({ chat_id: chat.chat_id }) });
+      testResult.textContent = "✓ enviada";
+      testResult.className = "test-result status-line ok";
+    } catch (err) {
+      testResult.textContent = err.message;
+      testResult.className = "test-result status-line error";
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   const toggle = row.querySelector('input[type="checkbox"]');
   toggle.checked = chat.active;

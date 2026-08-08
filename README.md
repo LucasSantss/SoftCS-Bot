@@ -44,9 +44,12 @@ Na aba **Agentes**:
 - **Novo agente**: cadastro manual (ID + `@` + nome opcional), pra quando preferir digitar
   direto ou a busca não trouxer nome.
 
-> Sem o escopo `offline_access` (não habilitado por padrão na aplicação da SoftCS), o
-> `access_token` dura ~1h e não renova sozinho — se "Buscar tickets" der erro de token
-> expirado, é só clicar em **Conectar** de novo.
+> Pra o token nunca expirar sem renovar sozinho, a aplicação OAuth2 na SoftCS precisa ter
+> o escopo `offline_access` habilitado (Identidade > "Continuar conectada mesmo após
+> sair"). Sem isso, a conexão pede `offline_access` mas a SoftCS recusa com
+> `invalid_scope`, e sem `offline_access` concedido o `access_token` dura ~1h sem
+> `refresh_token` — nesse caso "Buscar tickets" avisa "token expirou" e é só clicar em
+> **Conectar** de novo.
 
 ## Setup
 
@@ -87,7 +90,9 @@ Na aba **Agentes**, seção "Buscar da SoftCS":
 Na aba **Chats**: cada grupo/canal que deve receber as notificações. Descubra o `chat_id`
 enviando uma mensagem no grupo (com o bot já adicionado) e acessando
 `https://api.telegram.org/bot<TOKEN>/getUpdates` — o `chat.id` aparece no JSON
-(grupos costumam ter id negativo).
+(grupos costumam ter id negativo). Depois de cadastrar, o botão **Testar** em cada linha
+manda uma mensagem de teste pra esse chat (`api/telegram-test.js`), confirmando que o
+`chat_id` está certo e que o bot ainda consegue postar ali.
 
 > **Importante sobre a menção `@username`**: o Telegram só notifica a pessoa se ela
 > (a) tiver um `@username` público configurado e (b) for membro do chat/grupo onde o
@@ -130,6 +135,7 @@ api/
   oauth-start.js            passo 1 da conexão OAuth (botão "Conectar")
   oauth-callback.js          passo 2 da conexão OAuth
   discover-tickets.js         lista os tickets na SoftCS com quem criou cada um
+  telegram-test.js             manda uma mensagem de teste pra um chat_id (botão "Testar")
 lib/
   db.js                 conexão com o Neon
   agents.js              busca o @username cadastrado pro criador do ticket

@@ -188,6 +188,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-foreground); }
 .status-line { font-size: 0.8rem; margin-top: 0.6rem; min-height: 1.2em; }
 .status-line.error { color: var(--destructive); }
 .status-line.ok { color: var(--success); }
+.test-result.status-line { margin-top: 0; white-space: nowrap; }
 
 @media (max-width: 720px) {
   .sidebar { display: none; }
