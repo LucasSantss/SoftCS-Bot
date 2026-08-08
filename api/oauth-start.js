@@ -9,6 +9,23 @@ function base64url(buffer) {
 // na SoftCS e você será redirecionado para /api/oauth-callback, que salva os
 // tokens no Neon.
 export default function handler(req, res) {
+  const clientId = process.env.SOFTCS_CLIENT_ID;
+  const redirectUri = process.env.SOFTCS_REDIRECT_URI;
+
+  const missing = [
+    !clientId && 'SOFTCS_CLIENT_ID',
+    !redirectUri && 'SOFTCS_REDIRECT_URI',
+  ].filter(Boolean);
+
+  if (missing.length > 0) {
+    res
+      .status(500)
+      .send(
+        `Variáveis de ambiente faltando na Vercel: ${missing.join(', ')}. Cadastre em Settings > Environment Variables (marcadas para Production) e redeploy.`
+      );
+    return;
+  }
+
   const verifier = base64url(crypto.randomBytes(32));
   const challenge = base64url(crypto.createHash('sha256').update(verifier).digest());
   const state = base64url(crypto.randomBytes(16));
@@ -19,8 +36,8 @@ export default function handler(req, res) {
   ]);
 
   const params = new URLSearchParams({
-    client_id: process.env.SOFTCS_CLIENT_ID,
-    redirect_uri: process.env.SOFTCS_REDIRECT_URI,
+    client_id: clientId,
+    redirect_uri: redirectUri,
     response_type: 'code',
     scope: 'openid offline_access tickets:read clients:read',
     state,
