@@ -19,11 +19,7 @@
         </div>
       </div>
       <nav class="sidebar-nav">
-        <button class="nav-item active" data-tab="settings">
-          <span class="nav-dot"></span>
-          Configurações
-        </button>
-        <button class="nav-item" data-tab="agents">
+        <button class="nav-item active" data-tab="agents">
           <span class="nav-dot"></span>
           Agentes
         </button>
@@ -34,10 +30,10 @@
       </nav>
       <div class="sidebar-footer">
         <div class="status-widget">
-          <div class="status-dot" id="oauthDot"></div>
+          <div class="status-dot on"></div>
           <div>
-            <div class="status-title">Integração SoftCS</div>
-            <div class="status-sub" id="oauthSub">verificando…</div>
+            <div class="status-title">Webhook ativo</div>
+            <div class="status-sub">/api/webhook</div>
           </div>
         </div>
       </div>
@@ -46,47 +42,15 @@
     <main class="main">
       <header class="topbar">
         <div>
-          <h1 id="topbarTitle">Configurações</h1>
-          <p class="muted" id="topbarSub">Credenciais OAuth2 da SoftCS</p>
+          <h1 id="topbarTitle">Agentes</h1>
+          <p class="muted" id="topbarSub">Mapeamento entre usuário SoftCS e @username no Telegram</p>
         </div>
       </header>
 
       <section class="content">
 
-        <!-- ─── Configurações ─── -->
-        <div class="tab-panel active" id="tab-settings">
-          <div class="card">
-            <h3>Aplicação OAuth2 da SoftCS</h3>
-            <form id="settingsForm">
-              <div class="form-grid">
-                <div>
-                  <label class="field-label">Client ID</label>
-                  <input name="softcs_client_id" type="text" />
-                </div>
-                <div>
-                  <label class="field-label">Client Secret</label>
-                  <input name="softcs_client_secret" type="text" />
-                </div>
-                <div class="full">
-                  <label class="field-label">Redirect URI</label>
-                  <input name="softcs_redirect_uri" type="text" placeholder="https://SEU-DOMINIO.vercel.app/api/oauth-callback" />
-                </div>
-                <div class="full">
-                  <label class="field-label">Webhook secret (opcional)</label>
-                  <input name="softcs_webhook_secret" type="text" />
-                </div>
-              </div>
-              <div class="form-actions">
-                <button type="submit" class="btn btn-primary">Salvar configurações</button>
-                <button type="button" id="authorizeBtn" class="btn btn-secondary">Autorizar no SoftCS</button>
-              </div>
-            </form>
-            <p id="settingsStatus" class="status-line"></p>
-          </div>
-        </div>
-
         <!-- ─── Agentes ─── -->
-        <div class="tab-panel" id="tab-agents">
+        <div class="tab-panel active" id="tab-agents">
           <div class="card">
             <h3>Novo agente</h3>
             <form id="agentForm" class="create-row">

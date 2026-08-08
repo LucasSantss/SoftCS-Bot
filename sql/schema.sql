@@ -1,21 +1,11 @@
--- Mapeamento manual: usuário SoftCS (createdById/agentId) -> @username do Telegram.
--- Preencher à mão, um registro por pessoa, à medida que os IDs forem descobertos.
+-- Mapeamento manual: usuário SoftCS (createdById) -> @username do Telegram.
+-- Preencher à mão em /admin.html, um registro por pessoa, à medida que os IDs
+-- forem descobertos (a API pública da SoftCS não expõe uma lista de agentes).
 create table if not exists agent_mapping (
   softcs_user_id text primary key,
   telegram_username text not null,
   display_name text,
   updated_at timestamptz not null default now()
-);
-
--- Guarda o par access_token/refresh_token do OAuth da SoftCS.
--- Linha única (id sempre 1); o token é renovado automaticamente antes de expirar.
-create table if not exists softcs_oauth_tokens (
-  id integer primary key default 1,
-  access_token text not null,
-  refresh_token text not null,
-  expires_at timestamptz not null,
-  updated_at timestamptz not null default now(),
-  constraint single_row check (id = 1)
 );
 
 -- Dedupe: evita reenviar a mesma mensagem no Telegram se a SoftCS reenviar o mesmo evento
@@ -32,24 +22,4 @@ create table if not exists telegram_chats (
   label text,
   active boolean not null default true,
   created_at timestamptz not null default now()
-);
-
--- Estado temporário do fluxo OAuth (Authorization Code + PKCE), usado só entre
--- /api/oauth-start e /api/oauth-callback. Substitui cookies, que não sobrevivem
--- a redirecionamentos entre domínios diferentes da Vercel (produção vs preview).
--- Linhas somem sozinhas (ver limpeza por expiração em lib/softcs.js).
-create table if not exists oauth_pkce_state (
-  state text primary key,
-  code_verifier text not null,
-  created_at timestamptz not null default now()
-);
-
--- Configuração da integração, editável pelo /admin.html: credenciais OAuth da
--- SoftCS e o secret do webhook. Único lugar de configuração além de
--- DATABASE_URL e TELEGRAM_BOT_TOKEN (esses dois continuam como env var, por
--- serem necessários antes de qualquer consulta ao banco ser possível).
-create table if not exists settings (
-  key text primary key,
-  value text not null,
-  updated_at timestamptz not null default now()
 );

@@ -18,7 +18,6 @@ const topbarTitle = document.getElementById("topbarTitle");
 const topbarSub = document.getElementById("topbarSub");
 
 const TAB_META = {
-  settings: { title: "Configurações", sub: "Credenciais OAuth2 da SoftCS" },
   agents: { title: "Agentes", sub: "Mapeamento entre usuário SoftCS e @username no Telegram" },
   chats: { title: "Chats do Telegram", sub: "Grupos e canais que recebem a notificação de cada ticket" },
 };
@@ -37,43 +36,6 @@ function setStatus(el, message, isError) {
   el.textContent = message;
   el.className = "status-line " + (isError ? "error" : "ok");
 }
-
-// ─── Configurações ──────────────────────────────────────────────────────────
-const settingsForm = document.getElementById("settingsForm");
-const settingsStatus = document.getElementById("settingsStatus");
-const oauthDot = document.getElementById("oauthDot");
-const oauthSub = document.getElementById("oauthSub");
-
-async function loadSettings() {
-  try {
-    const data = await api("/api/settings");
-    for (const [key, value] of Object.entries(data)) {
-      const input = settingsForm.elements[key];
-      if (input) input.value = value;
-    }
-    oauthDot.classList.toggle("on", data.oauth_connected);
-    oauthDot.classList.toggle("off", !data.oauth_connected);
-    oauthSub.textContent = data.oauth_connected ? "Integração SoftCS conectada" : "Integração SoftCS pendente";
-  } catch (err) {
-    setStatus(settingsStatus, err.message, true);
-  }
-}
-
-settingsForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const data = Object.fromEntries(new FormData(settingsForm));
-  try {
-    await api("/api/settings", { method: "POST", body: JSON.stringify(data) });
-    setStatus(settingsStatus, "Configurações salvas.", false);
-    await loadSettings();
-  } catch (err) {
-    setStatus(settingsStatus, err.message, true);
-  }
-});
-
-document.getElementById("authorizeBtn").addEventListener("click", () => {
-  window.location.href = "/api/oauth-start";
-});
 
 // ─── Agentes ────────────────────────────────────────────────────────────────
 const agentForm = document.getElementById("agentForm");
@@ -211,7 +173,6 @@ chatForm.addEventListener("submit", async (event) => {
 });
 
 function boot() {
-  loadSettings();
   loadAgents();
   loadChats();
 }

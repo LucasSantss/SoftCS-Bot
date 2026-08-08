@@ -1,7 +1,6 @@
 import sql from '../lib/db.js';
-import { getTicket, getClient, getTelegramMention } from '../lib/softcs.js';
+import { getTelegramMention } from '../lib/agents.js';
 import { broadcastTelegramMessage, escapeHtml } from '../lib/telegram.js';
-import { getSetting } from '../lib/settings.js';
 
 const PRIORITY_LABELS = {
   P0: '🔴 P0 (crítico)',
@@ -10,21 +9,22 @@ const PRIORITY_LABELS = {
   P3: '🟢 P3',
 };
 
-// TODO: ajustar assim que soubermos o formato real do evento (ver painel
-// Webhooks da SoftCS). Por ora assume um envelope no estilo
-// { eventId, event, data: { id, mainClientId, ... } } e cai para buscar o
-// ticket via API caso só venham os IDs.
-function parseEvent(payload) {
-  const eventId =
-    payload.eventId ?? payload.id ?? payload.event_id ?? `${payload.event ?? 'unknown'}:${payload.data?.id ?? payload.ticketId ?? Date.now()}`;
+// TODO: ajustar assim que soubermos o formato real do payload (ver painel
+// Webhooks da SoftCS, ou disparar um evento de teste e olhar os logs da
+// Vercel). Por ora assume um envelope no estilo { event, eventId, data: {...} }
+// com o ticket já embutido — sem nenhuma chamada de volta pra API da SoftCS.
+function parsePayload(payload) {
+  const ticket = payload.data ?? payload.ticket ?? payload;
 
-  const eventType = payload.event ?? payload.type ?? 'unknown';
-
-  const ticketId = payload.data?.id ?? payload.ticketId ?? payload.ticket?.id;
-  const clientId =
-    payload.data?.mainClientId ?? payload.clientId ?? payload.ticket?.mainClientId;
-
-  return { eventId, eventType, ticketId, clientId, inlineTicket: payload.data ?? payload.ticket };
+  return {
+    eventId: payload.eventId ?? payload.id ?? ticket.id ?? `${payload.event ?? 'evt'}:${Date.now()}`,
+    eventType: payload.event ?? payload.type ?? 'unknown',
+    title: ticket.title,
+    priority: ticket.priority,
+    publicId: ticket.publicId,
+    clientName: ticket.client?.name ?? ticket.mainClient?.name ?? ticket.clientName ?? null,
+    createdById: ticket.createdById ?? ticket.createdBy?.id ?? null,
+  };
 }
 
 function isTicketCreatedEvent(eventType) {
@@ -48,15 +48,15 @@ async function getActiveChatIds() {
   return rows.map((row) => row.chat_id);
 }
 
-function buildMessage({ ticket, client, mention }) {
-  const priority = PRIORITY_LABELS[ticket.priority] ?? ticket.priority ?? '-';
+function buildMessage({ title, priority, publicId, clientName, mention }) {
+  const priorityLabel = PRIORITY_LABELS[priority] ?? priority ?? '-';
   const lines = [
     `🎫 <b>Novo ticket</b>`,
-    `<b>${escapeHtml(ticket.title)}</b>`,
+    `<b>${escapeHtml(title ?? '(sem título)')}</b>`,
     '',
-    `Prioridade: ${priority}`,
-    client ? `Cliente: ${escapeHtml(client.name ?? client.id)}` : null,
-    ticket.publicId ? `ID: ${escapeHtml(ticket.publicId)}` : null,
+    `Prioridade: ${priorityLabel}`,
+    clientName ? `Cliente: ${escapeHtml(clientName)}` : null,
+    publicId ? `ID: ${escapeHtml(publicId)}` : null,
     '',
     mention ? `Criado por: ${mention}` : 'Criado por: (sem mapeamento cadastrado)',
   ].filter(Boolean);
@@ -70,19 +70,8 @@ export default async function handler(req, res) {
     return;
   }
 
-  // TODO: trocar por validação real (header de assinatura HMAC ou secret)
-  // assim que soubermos como a SoftCS autentica o request no painel de Webhooks.
-  const expectedSecret = await getSetting('softcs_webhook_secret');
-  if (expectedSecret) {
-    const receivedSecret = req.headers['x-softcs-secret'];
-    if (receivedSecret !== expectedSecret) {
-      res.status(401).json({ error: 'unauthorized' });
-      return;
-    }
-  }
-
-  const payload = req.body;
-  const { eventId, eventType, ticketId, clientId, inlineTicket } = parseEvent(payload);
+  const payload = req.body ?? {};
+  const { eventId, eventType, title, priority, publicId, clientName, createdById } = parsePayload(payload);
 
   if (!isTicketCreatedEvent(eventType)) {
     // Evento que não nos interessa (ex: atualização). Responde 200 para a
@@ -97,16 +86,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    const ticket = inlineTicket?.title
-      ? inlineTicket
-      : await getTicket(clientId, ticketId);
-
-    const client = clientId ? await getClient(clientId).catch(() => null) : null;
-    const mention = await getTelegramMention(ticket.createdById);
+    const mention = await getTelegramMention(createdById);
     const chatIds = await getActiveChatIds();
 
     if (chatIds.length > 0) {
-      await broadcastTelegramMessage(chatIds, buildMessage({ ticket, client, mention }));
+      await broadcastTelegramMessage(chatIds, buildMessage({ title, priority, publicId, clientName, mention }));
     } else {
       console.warn('Nenhum chat ativo em telegram_chats — cadastre em /admin.html');
     }

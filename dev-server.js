@@ -12,9 +12,6 @@ const routes = {
   '/api/webhook': () => import('./api/webhook.js'),
   '/api/chats': () => import('./api/chats.js'),
   '/api/agents': () => import('./api/agents.js'),
-  '/api/settings': () => import('./api/settings.js'),
-  '/api/oauth-start': () => import('./api/oauth-start.js'),
-  '/api/oauth-callback': () => import('./api/oauth-callback.js'),
 };
 
 function augmentResponse(res) {
