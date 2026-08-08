@@ -52,7 +52,11 @@ async function readJsonBody(req) {
   return raw;
 }
 
-const STATIC_CONTENT_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript' };
+const STATIC_CONTENT_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+};
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);

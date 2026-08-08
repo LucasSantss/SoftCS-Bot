@@ -1,354 +1,147 @@
 <!doctype html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>SoftCS Bot — Admin</title>
-<style>
-  :root { color-scheme: light dark; }
-  body {
-    font-family: system-ui, -apple-system, Segoe UI, sans-serif;
-    max-width: 720px;
-    margin: 40px auto;
-    padding: 0 16px;
-    color: #1a1a1a;
-    background: #fafafa;
-  }
-  @media (prefers-color-scheme: dark) {
-    body { color: #eee; background: #14141a; }
-    input, table, section { background: #1f1f28; color: #eee; border-color: #333; }
-    th { background: #22222c; }
-    tr:hover { background: #22222c; }
-  }
-  h1 { font-size: 1.3rem; margin-bottom: 4px; }
-  h2 { font-size: 1.05rem; margin: 0 0 4px; }
-  section {
-    border: 1px solid #ddd;
-    border-radius: 10px;
-    padding: 16px 18px;
-    margin: 20px 0;
-  }
-  form { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; align-items: center; }
-  form.stack { flex-direction: column; align-items: stretch; }
-  label { font-size: 0.85rem; display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 160px; }
-  input { padding: 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.95rem; }
-  input[name="chat_id"], input[name="softcs_user_id"] { width: 200px; }
-  button { padding: 8px 14px; border: none; border-radius: 6px; background: #2563eb; color: #fff; cursor: pointer; font-size: 0.95rem; }
-  button:hover { background: #1d4ed8; }
-  button.danger { background: #dc2626; }
-  button.danger:hover { background: #b91c1c; }
-  button.secondary { background: #6b7280; }
-  button.secondary:hover { background: #4b5563; }
-  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-  th, td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; font-size: 0.88rem; }
-  .muted { color: #888; font-size: 0.85rem; }
-  .status { font-size: 0.85rem; margin-top: 8px; min-height: 1.2em; }
-  .status.error { color: #dc2626; }
-  .status.ok { color: #16a34a; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.78rem; }
-  .badge.on { background: #16a34a22; color: #16a34a; }
-  .badge.off { background: #dc262622; color: #dc2626; }
-</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="admin.css" />
 </head>
 <body>
-  <h1>SoftCS Bot — Administração</h1>
-  <p class="muted">Configuração da integração, mapeamento de agentes e grupos do Telegram.</p>
 
-  <section id="section-settings">
-    <h2>Configurações</h2>
-    <p class="muted">Credenciais da aplicação OAuth2 da SoftCS e a senha deste painel.</p>
-    <form id="settings-form" class="stack">
-      <label>Senha de admin (protege este painel)
-        <input name="admin_secret" type="text" placeholder="escolha uma senha" />
-      </label>
-      <label>SoftCS — Client ID
-        <input name="softcs_client_id" type="text" />
-      </label>
-      <label>SoftCS — Client Secret
-        <input name="softcs_client_secret" type="text" />
-      </label>
-      <label>SoftCS — Redirect URI
-        <input name="softcs_redirect_uri" type="text" placeholder="https://SEU-DOMINIO.vercel.app/api/oauth-callback" />
-      </label>
-      <label>SoftCS — Webhook secret (opcional)
-        <input name="softcs_webhook_secret" type="text" />
-      </label>
-      <div style="display:flex; gap:8px;">
-        <button type="submit">Salvar configurações</button>
-        <button type="button" id="authorize-btn" class="secondary">Autorizar no SoftCS</button>
+  <div id="loginModal" class="modal-overlay">
+    <div class="modal">
+      <h2>SoftCS Bot</h2>
+      <p class="muted" id="loginHint">Cole a senha de administrador.</p>
+      <input id="adminKeyInput" type="password" placeholder="Senha de administrador" autocomplete="off" />
+      <div id="loginError" class="field-error" style="display:none"></div>
+      <button id="loginBtn" class="btn btn-primary" style="width:100%">Entrar</button>
+    </div>
+  </div>
+
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-icon">S</div>
+        <div>
+          <div class="brand-title">SoftCS Bot</div>
+          <div class="brand-sub">Admin</div>
+        </div>
       </div>
-    </form>
-    <p>Status da autorização: <span id="oauth-status" class="badge">…</span></p>
-    <p id="settings-status" class="status"></p>
-  </section>
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-tab="settings">
+          <span class="nav-dot"></span>
+          Configurações
+        </button>
+        <button class="nav-item" data-tab="agents">
+          <span class="nav-dot"></span>
+          Agentes
+        </button>
+        <button class="nav-item" data-tab="chats">
+          <span class="nav-dot"></span>
+          Chats
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="status-widget">
+          <div class="status-dot" id="oauthDot"></div>
+          <div>
+            <div class="status-title">Integração SoftCS</div>
+            <div class="status-sub" id="oauthSub">verificando…</div>
+          </div>
+        </div>
+      </div>
+    </aside>
 
-  <section id="section-agents">
-    <h2>Agentes (SoftCS → Telegram)</h2>
-    <p class="muted">
-      Associe o ID do usuário SoftCS (quem aparece como criador do ticket) ao @username dele no
-      Telegram. A API da SoftCS não expõe essa lista, então precisa ser cadastrado à mão.
-    </p>
-    <form id="agent-form">
-      <input name="softcs_user_id" placeholder="ID do usuário na SoftCS" required />
-      <input name="telegram_username" placeholder="@username no Telegram" required />
-      <input name="display_name" placeholder="nome (opcional)" style="flex:1; min-width:140px;" />
-      <button type="submit">Adicionar</button>
-    </form>
-    <p id="agent-status" class="status"></p>
-    <table>
-      <thead><tr><th>Nome</th><th>ID SoftCS</th><th>Telegram</th><th></th></tr></thead>
-      <tbody id="agent-rows"></tbody>
-    </table>
-  </section>
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="topbarTitle">Configurações</h1>
+          <p class="muted" id="topbarSub">Credenciais OAuth2 da SoftCS e senha deste painel</p>
+        </div>
+      </header>
 
-  <section id="section-chats">
-    <h2>Chats do Telegram</h2>
-    <p class="muted">Grupos/canais que recebem a notificação de cada ticket novo.</p>
-    <form id="chat-form">
-      <input name="chat_id" placeholder="chat_id (ex: -1001234567890)" required />
-      <input name="label" placeholder="rótulo (ex: Suporte N1)" style="flex:1; min-width:140px;" />
-      <button type="submit">Adicionar</button>
-    </form>
-    <p id="chat-status" class="status"></p>
-    <table>
-      <thead><tr><th>Rótulo</th><th>chat_id</th><th>Ativo</th><th></th></tr></thead>
-      <tbody id="chat-rows"></tbody>
-    </table>
-  </section>
+      <section class="content">
 
-  <script>
-    function getSecret() {
-      let secret = sessionStorage.getItem('admin_secret');
-      if (secret === null) {
-        secret = prompt('Senha de administração (deixe em branco se for o primeiro acesso):') || '';
-        sessionStorage.setItem('admin_secret', secret);
-      }
-      return secret;
-    }
+        <!-- ─── Configurações ─── -->
+        <div class="tab-panel active" id="tab-settings">
+          <div class="card">
+            <h3>Aplicação OAuth2 da SoftCS</h3>
+            <form id="settingsForm">
+              <div class="form-grid">
+                <div class="full">
+                  <label class="field-label">Senha de admin (protege este painel)</label>
+                  <input name="admin_secret" type="text" placeholder="escolha uma senha" />
+                </div>
+                <div>
+                  <label class="field-label">Client ID</label>
+                  <input name="softcs_client_id" type="text" />
+                </div>
+                <div>
+                  <label class="field-label">Client Secret</label>
+                  <input name="softcs_client_secret" type="text" />
+                </div>
+                <div class="full">
+                  <label class="field-label">Redirect URI</label>
+                  <input name="softcs_redirect_uri" type="text" placeholder="https://SEU-DOMINIO.vercel.app/api/oauth-callback" />
+                </div>
+                <div class="full">
+                  <label class="field-label">Webhook secret (opcional)</label>
+                  <input name="softcs_webhook_secret" type="text" />
+                </div>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Salvar configurações</button>
+                <button type="button" id="authorizeBtn" class="btn btn-secondary">Autorizar no SoftCS</button>
+              </div>
+            </form>
+            <p id="settingsStatus" class="status-line"></p>
+          </div>
+        </div>
 
-    function setSecret(value) {
-      sessionStorage.setItem('admin_secret', value || '');
-    }
+        <!-- ─── Agentes ─── -->
+        <div class="tab-panel" id="tab-agents">
+          <div class="card">
+            <h3>Novo agente</h3>
+            <form id="agentForm" class="create-row">
+              <input name="softcs_user_id" placeholder="ID do usuário na SoftCS" required />
+              <input name="telegram_username" placeholder="@username no Telegram" required />
+              <input name="display_name" placeholder="nome (opcional)" />
+              <button type="submit" class="btn btn-primary">+ Adicionar</button>
+            </form>
+            <p id="agentStatus" class="status-line"></p>
+          </div>
 
-    async function api(path, options = {}) {
-      const res = await fetch(path, {
-        ...options,
-        headers: {
-          ...(options.headers || {}),
-          'x-admin-secret': getSecret(),
-        },
-      });
-      if (res.status === 401) {
-        sessionStorage.removeItem('admin_secret');
-        throw new Error('Senha incorreta — recarregue a página e tente de novo.');
-      }
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `erro ${res.status}`);
-      }
-      return res.status === 204 ? null : res.json();
-    }
+          <div class="list" id="agentList"></div>
+          <div class="empty-state" id="agentEmpty" style="display:none">
+            <p>Nenhum agente cadastrado ainda.</p>
+            <p class="muted">A API da SoftCS não expõe essa lista — cadastre à mão conforme for identificando quem criou cada ticket.</p>
+          </div>
+        </div>
 
-    function setStatus(el, message, isError) {
-      el.textContent = message;
-      el.className = 'status ' + (isError ? 'error' : 'ok');
-    }
+        <!-- ─── Chats ─── -->
+        <div class="tab-panel" id="tab-chats">
+          <div class="card">
+            <h3>Novo chat</h3>
+            <form id="chatForm" class="create-row">
+              <input name="chat_id" placeholder="chat_id (ex: -1001234567890)" required />
+              <input name="label" placeholder="rótulo (ex: Suporte N1)" />
+              <button type="submit" class="btn btn-primary">+ Adicionar</button>
+            </form>
+            <p id="chatStatus" class="status-line"></p>
+          </div>
 
-    // ---------- Configurações ----------
-    const settingsForm = document.getElementById('settings-form');
-    const settingsStatus = document.getElementById('settings-status');
-    const oauthStatusEl = document.getElementById('oauth-status');
+          <div class="list" id="chatList"></div>
+          <div class="empty-state" id="chatEmpty" style="display:none">
+            <p>Nenhum chat cadastrado ainda.</p>
+            <p class="muted">Adicione o bot ao grupo e cole o chat_id acima para começar a receber notificações.</p>
+          </div>
+        </div>
 
-    async function loadSettings() {
-      try {
-        const data = await api('/api/settings');
-        for (const [key, value] of Object.entries(data)) {
-          const input = settingsForm.elements[key];
-          if (input) input.value = value;
-        }
-        oauthStatusEl.textContent = data.oauth_connected ? 'conectado' : 'não autorizado ainda';
-        oauthStatusEl.className = 'badge ' + (data.oauth_connected ? 'on' : 'off');
-      } catch (err) {
-        setStatus(settingsStatus, err.message, true);
-      }
-    }
+      </section>
+    </main>
+  </div>
 
-    settingsForm.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const data = Object.fromEntries(new FormData(settingsForm));
-      try {
-        await api('/api/settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        });
-        if (data.admin_secret) setSecret(data.admin_secret);
-        setStatus(settingsStatus, 'Configurações salvas.', false);
-        await loadSettings();
-      } catch (err) {
-        setStatus(settingsStatus, err.message, true);
-      }
-    });
-
-    document.getElementById('authorize-btn').addEventListener('click', () => {
-      window.location.href = '/api/oauth-start';
-    });
-
-    // ---------- Agentes ----------
-    const agentForm = document.getElementById('agent-form');
-    const agentStatus = document.getElementById('agent-status');
-    const agentRows = document.getElementById('agent-rows');
-
-    async function loadAgents() {
-      agentRows.innerHTML = '<tr><td colspan="4" class="muted">Carregando…</td></tr>';
-      try {
-        const agents = await api('/api/agents');
-        if (agents.length === 0) {
-          agentRows.innerHTML = '<tr><td colspan="4" class="muted">Nenhum agente cadastrado ainda.</td></tr>';
-          return;
-        }
-        agentRows.innerHTML = '';
-        for (const agent of agents) {
-          const tr = document.createElement('tr');
-
-          const nameTd = document.createElement('td');
-          nameTd.textContent = agent.display_name || '—';
-
-          const idTd = document.createElement('td');
-          idTd.textContent = agent.softcs_user_id;
-
-          const telegramTd = document.createElement('td');
-          telegramTd.textContent = '@' + agent.telegram_username;
-
-          const actionsTd = document.createElement('td');
-          const delBtn = document.createElement('button');
-          delBtn.textContent = 'Remover';
-          delBtn.className = 'danger';
-          delBtn.addEventListener('click', async () => {
-            if (!confirm(`Remover "${agent.display_name || agent.softcs_user_id}"?`)) return;
-            try {
-              await api(`/api/agents?softcs_user_id=${encodeURIComponent(agent.softcs_user_id)}`, { method: 'DELETE' });
-              await loadAgents();
-              setStatus(agentStatus, 'Removido.', false);
-            } catch (err) {
-              setStatus(agentStatus, err.message, true);
-            }
-          });
-          actionsTd.appendChild(delBtn);
-
-          tr.append(nameTd, idTd, telegramTd, actionsTd);
-          agentRows.appendChild(tr);
-        }
-      } catch (err) {
-        agentRows.innerHTML = '';
-        setStatus(agentStatus, err.message, true);
-      }
-    }
-
-    agentForm.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const data = Object.fromEntries(new FormData(agentForm));
-      try {
-        await api('/api/agents', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        });
-        agentForm.reset();
-        setStatus(agentStatus, 'Adicionado.', false);
-        await loadAgents();
-      } catch (err) {
-        setStatus(agentStatus, err.message, true);
-      }
-    });
-
-    // ---------- Chats ----------
-    const chatForm = document.getElementById('chat-form');
-    const chatStatus = document.getElementById('chat-status');
-    const chatRows = document.getElementById('chat-rows');
-
-    async function loadChats() {
-      chatRows.innerHTML = '<tr><td colspan="4" class="muted">Carregando…</td></tr>';
-      try {
-        const chats = await api('/api/chats');
-        if (chats.length === 0) {
-          chatRows.innerHTML = '<tr><td colspan="4" class="muted">Nenhum chat cadastrado ainda.</td></tr>';
-          return;
-        }
-        chatRows.innerHTML = '';
-        for (const chat of chats) {
-          const tr = document.createElement('tr');
-
-          const labelTd = document.createElement('td');
-          labelTd.textContent = chat.label || '(sem rótulo)';
-
-          const idTd = document.createElement('td');
-          idTd.textContent = chat.chat_id;
-
-          const activeTd = document.createElement('td');
-          const toggle = document.createElement('input');
-          toggle.type = 'checkbox';
-          toggle.checked = chat.active;
-          toggle.addEventListener('change', async () => {
-            try {
-              await api('/api/chats', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: chat.chat_id, active: toggle.checked }),
-              });
-              setStatus(chatStatus, 'Atualizado.', false);
-            } catch (err) {
-              setStatus(chatStatus, err.message, true);
-              toggle.checked = !toggle.checked;
-            }
-          });
-          activeTd.appendChild(toggle);
-
-          const actionsTd = document.createElement('td');
-          const delBtn = document.createElement('button');
-          delBtn.textContent = 'Remover';
-          delBtn.className = 'danger';
-          delBtn.addEventListener('click', async () => {
-            if (!confirm(`Remover "${chat.label || chat.chat_id}"?`)) return;
-            try {
-              await api(`/api/chats?chat_id=${encodeURIComponent(chat.chat_id)}`, { method: 'DELETE' });
-              await loadChats();
-              setStatus(chatStatus, 'Removido.', false);
-            } catch (err) {
-              setStatus(chatStatus, err.message, true);
-            }
-          });
-          actionsTd.appendChild(delBtn);
-
-          tr.append(labelTd, idTd, activeTd, actionsTd);
-          chatRows.appendChild(tr);
-        }
-      } catch (err) {
-        chatRows.innerHTML = '';
-        setStatus(chatStatus, err.message, true);
-      }
-    }
-
-    chatForm.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const data = Object.fromEntries(new FormData(chatForm));
-      try {
-        await api('/api/chats', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        });
-        chatForm.reset();
-        setStatus(chatStatus, 'Adicionado.', false);
-        await loadChats();
-      } catch (err) {
-        setStatus(chatStatus, err.message, true);
-      }
-    });
-
-    loadSettings();
-    loadAgents();
-    loadChats();
-  </script>
+  <script src="admin.js"></script>
 </body>
 </html>
