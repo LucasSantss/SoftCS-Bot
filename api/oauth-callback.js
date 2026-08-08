@@ -48,14 +48,19 @@ export default async function handler(req, res) {
     grant_type: 'authorization_code',
     code,
     redirect_uri: redirectUri,
-    client_id: clientId,
-    client_secret: clientSecret,
     code_verifier: row.code_verifier,
   });
 
+  // O token endpoint da SoftCS só aceita client_secret_basic (HTTP Basic Auth),
+  // não client_id/client_secret no corpo — confirmado no .well-known/openid-configuration.
+  const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
   const response = await fetch('https://admin.softcs.com.br/api/public/v1/oauth/token', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: `Basic ${basicAuth}`,
+    },
     body,
   });
 
