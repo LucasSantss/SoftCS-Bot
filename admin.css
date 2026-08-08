@@ -111,7 +111,7 @@ input, button { font-family: 'DM Sans', system-ui, sans-serif; }
 .form-actions { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.9rem; flex-wrap: wrap; }
 
 /* ─── Inputs & buttons ─── */
-input[type="text"], input[type="password"] {
+input[type="text"], input[type="password"], textarea {
   background: var(--input);
   border: 1px solid var(--border);
   color: var(--foreground);
@@ -121,8 +121,9 @@ input[type="text"], input[type="password"] {
   outline: none;
   width: 100%;
 }
-input[type="text"]:focus, input[type="password"]:focus { border-color: var(--primary); }
-input::placeholder { color: var(--muted-foreground); }
+textarea { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; resize: vertical; }
+input[type="text"]:focus, input[type="password"]:focus, textarea:focus { border-color: var(--primary); }
+input::placeholder, textarea::placeholder { color: var(--muted-foreground); }
 
 .btn {
   border: none;

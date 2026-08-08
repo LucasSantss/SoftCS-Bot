@@ -62,10 +62,26 @@
             <p id="agentStatus" class="status-line"></p>
           </div>
 
+          <div class="card">
+            <h3>Importar da SoftCS</h3>
+            <p class="muted">
+              Cole aqui o JSON de tickets exportado/inspecionado da SoftCS. A extração roda
+              só no seu navegador — nenhum campo além de ID, nome e e-mail do criador é
+              enviado pra este servidor (o resto, incluindo qualquer dado sensível do JSON,
+              fica só na sua tela e é descartado).
+            </p>
+            <textarea id="importJsonInput" rows="4" placeholder='Cole aqui o JSON (ex: { "items": [ ... ] })'></textarea>
+            <div class="form-actions">
+              <button type="button" id="extractBtn" class="btn btn-secondary">Extrair criadores</button>
+            </div>
+            <p id="importStatus" class="status-line"></p>
+            <div class="list" id="importList"></div>
+          </div>
+
           <div class="list" id="agentList"></div>
           <div class="empty-state" id="agentEmpty" style="display:none">
             <p>Nenhum agente cadastrado ainda.</p>
-            <p class="muted">A API da SoftCS não expõe essa lista — cadastre à mão conforme for identificando quem criou cada ticket.</p>
+            <p class="muted">A API da SoftCS não expõe essa lista — cadastre à mão conforme for identificando quem criou cada ticket, ou use a importação acima.</p>
           </div>
         </div>
 

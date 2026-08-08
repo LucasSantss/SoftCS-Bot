@@ -23,9 +23,14 @@ domínio (`index.html`), e ficam salvos no Neon.
 ## Por que o mapeamento de agentes é manual
 
 A API pública da SoftCS não tem um recurso `users`/`agents`, e o payload do ticket só traz
-`createdById` (um ID opaco, sem nome/e-mail/username). Por isso o mapeamento é preenchido à
-mão no painel: identifique quem é o criador de cada ticket (olhando na SoftCS) e cadastre
-o ID correspondente lá.
+`createdById` (um ID opaco, sem nome/e-mail/username). O painel tem duas formas de
+cadastrar o mapeamento:
+
+- **Manual**: preencher o formulário "Novo agente" com o ID e o `@`.
+- **Importar da SoftCS**: colar um JSON de tickets (obtido inspecionando a SoftCS) que
+  tenha o campo `createdBy` embutido — a extração roda só no navegador, pega apenas
+  `id`/`name`/`email` de cada criador único, e você só preenche o `@` de cada um. Nenhum
+  outro campo do JSON colado (o que for sensível, incluso) chega no servidor.
 
 ## Setup
 

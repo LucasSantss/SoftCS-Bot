@@ -43,9 +43,12 @@ const agentStatus = document.getElementById("agentStatus");
 const agentList = document.getElementById("agentList");
 const agentEmpty = document.getElementById("agentEmpty");
 
+let knownAgentIds = new Set();
+
 async function loadAgents() {
   try {
     const agents = await api("/api/agents");
+    knownAgentIds = new Set(agents.map((a) => a.softcs_user_id));
     agentList.innerHTML = "";
     agentEmpty.style.display = agents.length ? "none" : "block";
     for (const agent of agents) renderAgentRow(agent);
@@ -92,6 +95,107 @@ agentForm.addEventListener("submit", async (event) => {
   } catch (err) {
     setStatus(agentStatus, err.message, true);
   }
+});
+
+// ─── Importar da SoftCS ─────────────────────────────────────────────────────
+// Roda inteiramente no navegador: só extrai { id, name, email } de dentro de
+// createdBy — nada do resto do JSON colado (incluindo qualquer dado sensível)
+// é enviado pro servidor. Só o que o usuário decidir "Salvar" vira uma
+// chamada normal pra /api/agents, igual ao formulário manual acima.
+const importJsonInput = document.getElementById("importJsonInput");
+const extractBtn = document.getElementById("extractBtn");
+const importStatus = document.getElementById("importStatus");
+const importList = document.getElementById("importList");
+
+function findTicketsWithCreator(value, out = []) {
+  if (Array.isArray(value)) {
+    value.forEach((item) => findTicketsWithCreator(item, out));
+  } else if (value && typeof value === "object") {
+    if (value.createdBy && typeof value.createdBy === "object") out.push(value);
+    if (Array.isArray(value.items)) findTicketsWithCreator(value.items, out);
+  }
+  return out;
+}
+
+function extractCreators(raw) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("JSON inválido — cole o texto exatamente como veio.");
+  }
+  const tickets = findTicketsWithCreator(parsed);
+  const byId = new Map();
+  for (const ticket of tickets) {
+    const c = ticket.createdBy;
+    if (c && c.id && !byId.has(c.id)) {
+      byId.set(c.id, { id: c.id, name: c.name || "", email: c.email || "" });
+    }
+  }
+  return [...byId.values()];
+}
+
+function renderImportRow(creator) {
+  const row = document.createElement("div");
+  row.className = "list-item";
+  row.innerHTML = `
+    <div class="list-item-main">
+      <span class="list-item-title"></span>
+      <span class="list-item-sub"></span>
+    </div>
+    <div class="list-item-actions">
+      <input type="text" placeholder="@username" style="width:160px" />
+      <button class="btn btn-primary">Salvar</button>
+    </div>
+  `;
+  row.querySelector(".list-item-title").textContent = creator.name || "(sem nome)";
+  row.querySelector(".list-item-sub").textContent = [creator.email, creator.id].filter(Boolean).join(" · ");
+
+  const usernameInput = row.querySelector('input[type="text"]');
+  row.querySelector("button").addEventListener("click", async () => {
+    const telegram_username = usernameInput.value.trim();
+    if (!telegram_username) {
+      usernameInput.focus();
+      return;
+    }
+    try {
+      await api("/api/agents", {
+        method: "POST",
+        body: JSON.stringify({ softcs_user_id: creator.id, telegram_username, display_name: creator.name }),
+      });
+      row.remove();
+      await loadAgents();
+      setStatus(importStatus, `${creator.name || creator.id} adicionado.`, false);
+    } catch (err) {
+      setStatus(importStatus, err.message, true);
+    }
+  });
+  importList.appendChild(row);
+}
+
+extractBtn.addEventListener("click", () => {
+  let creators;
+  try {
+    creators = extractCreators(importJsonInput.value.trim());
+  } catch (err) {
+    setStatus(importStatus, err.message, true);
+    return;
+  }
+
+  importList.innerHTML = "";
+  if (creators.length === 0) {
+    setStatus(importStatus, "Nenhum campo createdBy encontrado nesse JSON.", true);
+    return;
+  }
+
+  const newOnes = creators.filter((c) => !knownAgentIds.has(c.id));
+  if (newOnes.length === 0) {
+    setStatus(importStatus, `${creators.length} criador(es) encontrado(s), todos já cadastrados.`, false);
+    return;
+  }
+
+  setStatus(importStatus, `${newOnes.length} novo(s) de ${creators.length} encontrado(s). Preencha o @ e salve.`, false);
+  for (const creator of newOnes) renderImportRow(creator);
 });
 
 // ─── Chats ──────────────────────────────────────────────────────────────────

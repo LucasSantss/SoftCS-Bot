@@ -1,5 +1,5 @@
 -- Mapeamento manual: usuário SoftCS (createdById) -> @username do Telegram.
--- Preencher à mão em /admin.html, um registro por pessoa, à medida que os IDs
+-- Preencher à mão em index.html (raiz do domínio), um registro por pessoa, à medida que os IDs
 -- forem descobertos (a API pública da SoftCS não expõe uma lista de agentes).
 create table if not exists agent_mapping (
   softcs_user_id text primary key,
@@ -16,7 +16,7 @@ create table if not exists processed_webhook_events (
 );
 
 -- Grupos/canais do Telegram que devem receber a notificação de cada ticket novo.
--- Gerenciado pela página /admin.html.
+-- Gerenciado pela página index.html (raiz do domínio).
 create table if not exists telegram_chats (
   chat_id text primary key,
   label text,
