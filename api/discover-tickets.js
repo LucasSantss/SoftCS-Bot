@@ -48,6 +48,14 @@ export default async function handler(req, res) {
       )
     );
 
+    // Log (só no servidor, nunca na resposta pro navegador — pode conter dados
+    // sensíveis embutidos) da primeira resposta não-nula, pra debugar formatos
+    // inesperados via Vercel > Logs sem precisar expor nada no Network tab.
+    const firstRaw = ticketLists.find((response) => response !== null);
+    if (firstRaw) {
+      console.log('Exemplo de resposta de /clients/{id}/tickets:', JSON.stringify(firstRaw).slice(0, 2000));
+    }
+
     const tickets = [];
     let hasNames = false;
 
@@ -79,6 +87,8 @@ export default async function handler(req, res) {
       tickets,
       clientsScanned: clients.length,
       hasNames,
+      // Só pra debug quando vier vazio — nomes de cliente não são sensíveis.
+      scannedClientNames: tickets.length === 0 ? clients.map((c) => c.name) : undefined,
     });
   } catch (error) {
     console.error('Erro buscando tickets na SoftCS:', error);
