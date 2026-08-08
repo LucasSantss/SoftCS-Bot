@@ -318,38 +318,67 @@ function renderKanban(tickets) {
 }
 
 // ─── Busca (alimenta o Kanban acima e os "Criadores encontrados" na aba Agentes) ──
+// Contas grandes têm milhares de clientes e a SoftCS só lista tickets por
+// cliente — cada chamada escaneia um lote (200 clientes) e acumula aqui, com
+// "Carregar mais" repetindo a partir de onde parou.
+const loadMoreBtn = document.getElementById("loadMoreBtn");
+
+let allTickets = [];
+let allCreatorsById = new Map();
+let totalClientsScanned = 0;
+let nextOffset = 0;
+
 let lastCreators = [];
 
-discoverBtn.addEventListener("click", async () => {
-  kanbanBoard.innerHTML = "";
-  setStatus(discoverStatus, "Buscando tickets na SoftCS…", false);
-  try {
-    const data = await api("/api/discover-tickets");
-    lastCreators = data.creators;
+function updateDiscoverStatus(data) {
+  if (allTickets.length === 0) {
+    setStatus(discoverStatus, `Nenhum ticket encontrado (${totalClientsScanned} clientes verificados).`, true);
+    return;
+  }
+  const namesNote = data.hasNames ? "" : " (API não retornou nome/e-mail do criador — só o ID)";
+  setStatus(
+    discoverStatus,
+    `${allTickets.length} ticket(s) em ${totalClientsScanned} clientes escaneados, ${allCreatorsById.size} criador(es) único(s).${namesNote}`,
+    !data.hasNames
+  );
+}
 
-    if (data.tickets.length === 0) {
-      setStatus(discoverStatus, `Nenhum ticket encontrado (${data.clientsScanned} clientes verificados).`, true);
-      return;
+async function runDiscover(offset) {
+  discoverBtn.disabled = true;
+  loadMoreBtn.disabled = true;
+  setStatus(discoverStatus, `Buscando tickets (clientes ${offset + 1}–${offset + 200})…`, false);
+  try {
+    const data = await api(`/api/discover-tickets?offset=${offset}`);
+
+    allTickets.push(...data.tickets);
+    for (const creator of data.creators) {
+      if (!allCreatorsById.has(creator.id)) allCreatorsById.set(creator.id, creator);
     }
-    if (!data.hasNames) {
-      setStatus(
-        discoverStatus,
-        `${data.tickets.length} ticket(s) encontrado(s), mas a API não retornou nome/e-mail do criador — só o ID.`,
-        true
-      );
-    } else {
-      setStatus(
-        discoverStatus,
-        `${data.tickets.length} ticket(s) em ${data.clientsScanned} clientes, ${data.creators.length} criador(es) único(s).`,
-        false
-      );
-    }
-    renderKanban(data.tickets);
+    totalClientsScanned += data.clientsScanned;
+    nextOffset = data.nextOffset;
+    lastCreators = [...allCreatorsById.values()];
+
+    loadMoreBtn.style.display = data.hasMoreClients ? "inline-flex" : "none";
+    updateDiscoverStatus(data);
+    renderKanban(allTickets);
     renderCreators(lastCreators);
   } catch (err) {
     setStatus(discoverStatus, err.message, true);
+  } finally {
+    discoverBtn.disabled = false;
+    loadMoreBtn.disabled = false;
   }
+}
+
+discoverBtn.addEventListener("click", () => {
+  allTickets = [];
+  allCreatorsById = new Map();
+  totalClientsScanned = 0;
+  kanbanBoard.innerHTML = "";
+  runDiscover(0);
 });
+
+loadMoreBtn.addEventListener("click", () => runDiscover(nextOffset));
 
 // ─── Chats ──────────────────────────────────────────────────────────────────
 const chatForm = document.getElementById("chatForm");

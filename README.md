@@ -49,6 +49,13 @@ Pra contornar isso sem depender de endpoint não-oficial:
 tickets em colunas, uma por `stageId` (igual ao Kanban da SoftCS). Clique no nome da coluna
 pra renomear.
 
+> Contas grandes têm milhares de clientes (testei numa conta real com mais de 2000) e a
+> SoftCS só lista tickets por cliente — não existe um `/tickets` geral (retorna 404). Fazer
+> tudo numa chamada só estouraria o tempo da function, então **Buscar tickets** escaneia um
+> lote de 200 clientes por vez; clique em **Carregar mais clientes** pra ir completando o
+> board. Os clientes vêm ordenados por `updatedAt desc`, então os mais ativos (mais chance
+> de ter ticket aberto) tendem a aparecer nos primeiros lotes.
+
 **Aba Agentes**:
 - **Novo agente**: cadastro manual (ID + `@` + nome opcional).
 - **Criadores encontrados**: lista deduplicada dos criadores vistos na última busca feita
@@ -69,8 +76,9 @@ de teste na hora pra confirmar que o chat_id está certo e o bot ainda posta ali
 > Nota técnica: a API pagina como `{ data: [...], pagination: { hasMore, nextOffset } }`,
 > não `{ items: [...] }` como a documentação sugere — `extractItems()` em
 > `api/discover-tickets.js` lida com os dois formatos. `limit` máximo é 200 (tanto pra
-> clientes quanto pra tickets); a busca pagina até 1000 clientes (5 páginas) e usa até 20
-> requisições em paralelo.
+> clientes quanto pra tickets). Os tickets de cada cliente vêm ordenados por
+> `sortBy=kanbanPosition` (o mesmo critério do board visual), buscados com até 20
+> requisições em paralelo por lote de clientes.
 
 ## Setup
 

@@ -2,11 +2,12 @@ import sql from '../lib/db.js';
 import { getValidAccessToken, getClients, getClientTickets } from '../lib/softcs-api.js';
 
 // A SoftCS não tem um "listar tickets de todos os clientes" — o endpoint é
-// sempre /clients/{clientId}/tickets, então a gente pagina os clientes (até
-// MAX_CLIENT_PAGES × 200, o limite máximo por página) e busca os tickets de
-// cada um. TICKET_CONCURRENCY evita disparar centenas de chamadas de uma vez.
+// sempre /clients/{clientId}/tickets. Contas grandes têm milhares de
+// clientes (testado: uma conta real tinha mais de 2000), então escanear
+// todos numa chamada só estoura o tempo da function. Em vez disso, cada
+// chamada escaneia UMA página de clientes (`offset`/`limit` na querystring)
+// e devolve se há mais — o front acumula com um botão "Carregar mais".
 const CLIENT_PAGE_LIMIT = 200;
-const MAX_CLIENT_PAGES = 5;
 const TICKETS_PER_CLIENT = 200;
 const TICKET_CONCURRENCY = 20;
 
@@ -43,23 +44,6 @@ function extractStage(ticket, stageLabels) {
   };
 }
 
-async function fetchAllClients() {
-  const clients = [];
-  let offset = 0;
-
-  for (let page = 0; page < MAX_CLIENT_PAGES; page++) {
-    const response = await getClients(CLIENT_PAGE_LIMIT, offset);
-    const items = extractItems(response);
-    clients.push(...items);
-
-    const pagination = response?.pagination;
-    if (items.length < CLIENT_PAGE_LIMIT || !pagination?.hasMore) break;
-    offset = pagination.nextOffset ?? offset + CLIENT_PAGE_LIMIT;
-  }
-
-  return clients;
-}
-
 // Roda `fn` sobre `items` com no máximo `limit` chamadas em paralelo por vez.
 async function mapWithConcurrency(items, limit, fn) {
   const results = new Array(items.length);
@@ -82,14 +66,18 @@ export default async function handler(req, res) {
     return;
   }
 
+  const offset = Number.parseInt(req.query?.offset, 10) || 0;
+
   try {
     // Verifica o token antes de disparar as chamadas em paralelo — assim um
     // token expirado vira um erro claro em vez de "0 tickets" sem explicação
     // (cada chamada abaixo engole erro individual pra não derrubar as outras).
     await getValidAccessToken();
 
-    const clients = await fetchAllClients();
+    const clientsResponse = await getClients(CLIENT_PAGE_LIMIT, offset);
+    const clients = extractItems(clientsResponse);
     const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
+    const clientPagination = clientsResponse?.pagination;
 
     const stageLabelRows = await sql`select stage_id, label from stage_labels`;
     const stageLabels = Object.fromEntries(stageLabelRows.map((r) => [r.stage_id, r.label]));
@@ -138,13 +126,13 @@ export default async function handler(req, res) {
       }
     }
 
-    tickets.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
-
     res.status(200).json({
       tickets,
       creators: [...creatorsById.values()],
       clientsScanned: clients.length,
       hasNames,
+      hasMoreClients: Boolean(clientPagination?.hasMore),
+      nextOffset: clientPagination?.nextOffset ?? offset + clients.length,
       // Só pra debug quando vier vazio — nomes de cliente não são sensíveis.
       scannedClientNames: tickets.length === 0 ? clients.map((c) => c.name) : undefined,
     });
