@@ -1,30 +1,24 @@
 import crypto from 'node:crypto';
 import sql from '../lib/db.js';
+import { getSetting } from '../lib/settings.js';
 
 function base64url(buffer) {
   return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 // Passo 1 do fluxo OAuth (Authorization Code + PKCE), usado uma única vez para
-// autorizar a integração. Acesse /api/oauth-start no navegador, aprove o acesso
-// na SoftCS e você será redirecionado para /api/oauth-callback, que salva os
-// tokens no Neon. O code_verifier fica guardado no banco (chaveado por `state`)
-// em vez de num cookie, porque a Vercel expõe várias URLs pro mesmo projeto e um
-// cookie setado numa não é enviado de volta pra outra.
+// autorizar a integração. Acessado a partir do botão "Autorizar" em /admin.html.
+// O code_verifier fica guardado no banco (chaveado por `state`) em vez de num
+// cookie, porque a Vercel expõe várias URLs pro mesmo projeto e um cookie
+// setado numa não é enviado de volta pra outra.
 export default async function handler(req, res) {
-  const clientId = process.env.SOFTCS_CLIENT_ID;
-  const redirectUri = process.env.SOFTCS_REDIRECT_URI;
+  const clientId = await getSetting('softcs_client_id');
+  const redirectUri = await getSetting('softcs_redirect_uri');
 
-  const missing = [!clientId && 'SOFTCS_CLIENT_ID', !redirectUri && 'SOFTCS_REDIRECT_URI'].filter(
-    Boolean
-  );
+  const missing = [!clientId && 'Client ID', !redirectUri && 'Redirect URI'].filter(Boolean);
 
   if (missing.length > 0) {
-    res
-      .status(500)
-      .send(
-        `Variáveis de ambiente faltando na Vercel: ${missing.join(', ')}. Cadastre em Settings > Environment Variables (marcadas para Production) e redeploy.`
-      );
+    res.status(400).send(`Configure em /admin.html antes de autorizar: ${missing.join(', ')}.`);
     return;
   }
 

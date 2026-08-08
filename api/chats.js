@@ -1,13 +1,9 @@
 import sql from '../lib/db.js';
-
-function isAuthorized(req) {
-  const secret = process.env.ADMIN_SECRET;
-  if (!secret) return false;
-  return req.headers['x-admin-secret'] === secret;
-}
+import { checkAdmin } from '../lib/auth.js';
 
 export default async function handler(req, res) {
-  if (!isAuthorized(req)) {
+  const { authorized } = await checkAdmin(req);
+  if (!authorized) {
     res.status(401).json({ error: 'unauthorized' });
     return;
   }

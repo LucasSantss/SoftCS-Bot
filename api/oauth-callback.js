@@ -1,4 +1,5 @@
 import sql from '../lib/db.js';
+import { getSetting } from '../lib/settings.js';
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 
@@ -38,12 +39,18 @@ export default async function handler(req, res) {
     return;
   }
 
+  const [redirectUri, clientId, clientSecret] = await Promise.all([
+    getSetting('softcs_redirect_uri'),
+    getSetting('softcs_client_id'),
+    getSetting('softcs_client_secret'),
+  ]);
+
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
     code,
-    redirect_uri: process.env.SOFTCS_REDIRECT_URI,
-    client_id: process.env.SOFTCS_CLIENT_ID,
-    client_secret: process.env.SOFTCS_CLIENT_SECRET,
+    redirect_uri: redirectUri,
+    client_id: clientId,
+    client_secret: clientSecret,
     code_verifier: row.code_verifier,
   });
 

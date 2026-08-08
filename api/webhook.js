@@ -1,6 +1,7 @@
 import sql from '../lib/db.js';
 import { getTicket, getClient, getTelegramMention } from '../lib/softcs.js';
 import { broadcastTelegramMessage, escapeHtml } from '../lib/telegram.js';
+import { getSetting } from '../lib/settings.js';
 
 const PRIORITY_LABELS = {
   P0: '🔴 P0 (crítico)',
@@ -71,7 +72,7 @@ export default async function handler(req, res) {
 
   // TODO: trocar por validação real (header de assinatura HMAC ou secret)
   // assim que soubermos como a SoftCS autentica o request no painel de Webhooks.
-  const expectedSecret = process.env.SOFTCS_WEBHOOK_SECRET;
+  const expectedSecret = await getSetting('softcs_webhook_secret');
   if (expectedSecret) {
     const receivedSecret = req.headers['x-softcs-secret'];
     if (receivedSecret !== expectedSecret) {

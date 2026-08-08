@@ -43,3 +43,14 @@ create table if not exists oauth_pkce_state (
   code_verifier text not null,
   created_at timestamptz not null default now()
 );
+
+-- Configuração da integração, editável pelo /admin.html: credenciais OAuth da
+-- SoftCS, secret do webhook e a senha de acesso ao próprio /admin.html.
+-- Único lugar de configuração além de DATABASE_URL e TELEGRAM_BOT_TOKEN (esses
+-- dois continuam como env var, por serem necessários antes de qualquer consulta
+-- ao banco ser possível).
+create table if not exists settings (
+  key text primary key,
+  value text not null,
+  updated_at timestamptz not null default now()
+);
