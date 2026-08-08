@@ -19,7 +19,11 @@
         </div>
       </div>
       <nav class="sidebar-nav">
-        <button class="nav-item active" data-tab="agents">
+        <button class="nav-item active" data-tab="tickets">
+          <span class="nav-dot"></span>
+          Tickets
+        </button>
+        <button class="nav-item" data-tab="agents">
           <span class="nav-dot"></span>
           Agentes
         </button>
@@ -42,33 +46,21 @@
     <main class="main">
       <header class="topbar">
         <div>
-          <h1 id="topbarTitle">Agentes</h1>
-          <p class="muted" id="topbarSub">Mapeamento entre usuário SoftCS e @username no Telegram</p>
+          <h1 id="topbarTitle">Tickets</h1>
+          <p class="muted" id="topbarSub">Consulta os tickets da SoftCS, agrupados pelas colunas do Kanban</p>
         </div>
       </header>
 
       <section class="content">
 
-        <!-- ─── Agentes ─── -->
-        <div class="tab-panel active" id="tab-agents">
+        <!-- ─── Tickets ─── -->
+        <div class="tab-panel active" id="tab-tickets">
           <div class="card">
-            <h3>Novo agente</h3>
-            <form id="agentForm" class="create-row">
-              <input name="softcs_user_id" placeholder="ID do usuário na SoftCS" required />
-              <input name="telegram_username" placeholder="@username no Telegram" required />
-              <input name="display_name" placeholder="nome (opcional)" />
-              <button type="submit" class="btn btn-primary">+ Adicionar</button>
-            </form>
-            <p id="agentStatus" class="status-line"></p>
-          </div>
-
-          <div class="card">
-            <h3>Buscar da SoftCS</h3>
-
+            <h3>Conectar com a SoftCS</h3>
             <div id="connectBox">
               <p class="muted">
-                Conecte a aplicação OAuth2 da SoftCS pra listar os tickets (título, cliente
-                e quem criou), sem precisar colar nada manualmente.
+                Conecte a aplicação OAuth2 da SoftCS pra consultar os tickets (título,
+                cliente, coluna do Kanban e quem criou).
               </p>
               <div class="form-grid">
                 <div>
@@ -95,13 +87,43 @@
               <button type="button" id="discoverBtn" class="btn btn-primary">Buscar tickets</button>
             </div>
             <p id="discoverStatus" class="status-line"></p>
-            <div class="list" id="discoverList"></div>
+          </div>
+
+          <div class="kanban" id="kanbanBoard"></div>
+        </div>
+
+        <!-- ─── Agentes ─── -->
+        <div class="tab-panel" id="tab-agents">
+          <div class="card">
+            <h3>Novo agente</h3>
+            <form id="agentForm" class="create-row">
+              <input name="softcs_user_id" placeholder="ID do usuário na SoftCS" required />
+              <input name="telegram_username" placeholder="@username no Telegram" required />
+              <input name="display_name" placeholder="nome (opcional)" />
+              <button type="submit" class="btn btn-primary">+ Adicionar</button>
+            </form>
+            <p id="agentStatus" class="status-line"></p>
+          </div>
+
+          <div class="card">
+            <h3>Criadores encontrados</h3>
+            <p class="muted">
+              Vem da última busca feita na aba Tickets. Cada linha mostra se já tem `@`
+              cadastrado ou não.
+            </p>
+            <div class="form-actions">
+              <button type="button" id="saveAllBtn" class="btn btn-primary">Salvar todos preenchidos</button>
+            </div>
+            <p id="creatorsStatus" class="status-line"></p>
+            <div class="list" id="creatorsList"></div>
+            <div class="empty-state" id="creatorsEmpty">
+              <p class="muted">Nenhuma busca feita ainda — vá na aba Tickets e clique em "Buscar tickets".</p>
+            </div>
           </div>
 
           <div class="list" id="agentList"></div>
           <div class="empty-state" id="agentEmpty" style="display:none">
             <p>Nenhum agente cadastrado ainda.</p>
-            <p class="muted">Use a busca acima, ou cadastre à mão pelo formulário.</p>
           </div>
         </div>
 

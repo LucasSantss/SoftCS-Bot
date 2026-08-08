@@ -17,6 +17,7 @@ const routes = {
   '/api/oauth-callback': () => import('./api/oauth-callback.js'),
   '/api/discover-tickets': () => import('./api/discover-tickets.js'),
   '/api/telegram-test': () => import('./api/telegram-test.js'),
+  '/api/stage-labels': () => import('./api/stage-labels.js'),
 };
 
 function augmentResponse(res) {

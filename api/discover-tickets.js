@@ -1,3 +1,4 @@
+import sql from '../lib/db.js';
 import { getValidAccessToken, getClients, getClientTickets } from '../lib/softcs-api.js';
 
 // A SoftCS não tem um "listar tickets de todos os clientes" — o endpoint é
@@ -25,6 +26,21 @@ function extractCreator(ticket) {
     return { id: ticket.createdById, name: null, email: null };
   }
   return null;
+}
+
+// A API pública não devolve o nome do estágio (só o stageId) — usa o rótulo
+// salvo em /api/stage-labels se existir; senão mostra um nome genérico a
+// partir do ID, pra pelo menos diferenciar as colunas até serem renomeadas.
+function extractStage(ticket, stageLabels) {
+  const stage = ticket.denormalizedStage ?? ticket.stage;
+  const id = stage?.id ?? ticket.stageId ?? 'sem-estagio';
+  const fallbackName = id === 'sem-estagio' ? 'Sem estágio' : `Coluna #${id.slice(-4)}`;
+  return {
+    id,
+    name: stageLabels[id] ?? stage?.name ?? fallbackName,
+    color: stage?.color ?? null,
+    position: typeof stage?.position === 'number' ? stage.position : 999,
+  };
 }
 
 async function fetchAllClients() {
@@ -75,6 +91,9 @@ export default async function handler(req, res) {
     const clients = await fetchAllClients();
     const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
 
+    const stageLabelRows = await sql`select stage_id, label from stage_labels`;
+    const stageLabels = Object.fromEntries(stageLabelRows.map((r) => [r.stage_id, r.label]));
+
     const ticketLists = await mapWithConcurrency(clients, TICKET_CONCURRENCY, (client) =>
       getClientTickets(client.id, TICKETS_PER_CLIENT, 0).catch((err) => {
         console.error(`Falha ao buscar tickets do cliente ${client.id}:`, err.message);
@@ -91,6 +110,7 @@ export default async function handler(req, res) {
     }
 
     const tickets = [];
+    const creatorsById = new Map();
     let hasNames = false;
 
     for (const ticketsResponse of ticketLists) {
@@ -99,6 +119,8 @@ export default async function handler(req, res) {
       for (const ticket of items) {
         const creator = extractCreator(ticket);
         if (creator?.name) hasNames = true;
+        if (creator && !creatorsById.has(creator.id)) creatorsById.set(creator.id, creator);
+
         tickets.push({
           id: ticket.id,
           publicId: ticket.publicId ?? null,
@@ -111,6 +133,7 @@ export default async function handler(req, res) {
             null,
           createdAt: ticket.createdAt ?? null,
           createdBy: creator,
+          stage: extractStage(ticket, stageLabels),
         });
       }
     }
@@ -119,6 +142,7 @@ export default async function handler(req, res) {
 
     res.status(200).json({
       tickets,
+      creators: [...creatorsById.values()],
       clientsScanned: clients.length,
       hasNames,
       // Só pra debug quando vier vazio — nomes de cliente não são sensíveis.

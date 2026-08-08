@@ -1,6 +1,5 @@
 -- Mapeamento manual: usuário SoftCS (createdById) -> @username do Telegram.
--- Preencher à mão em index.html (raiz do domínio), um registro por pessoa, à medida que os IDs
--- forem descobertos (a API pública da SoftCS não expõe uma lista de agentes).
+-- Preencher no painel (raiz do domínio), um registro por pessoa.
 create table if not exists agent_mapping (
   softcs_user_id text primary key,
   telegram_username text not null,
@@ -16,7 +15,6 @@ create table if not exists processed_webhook_events (
 );
 
 -- Grupos/canais do Telegram que devem receber a notificação de cada ticket novo.
--- Gerenciado pela página index.html (raiz do domínio).
 create table if not exists telegram_chats (
   chat_id text primary key,
   label text,
@@ -24,18 +22,14 @@ create table if not exists telegram_chats (
   created_at timestamptz not null default now()
 );
 
--- Credenciais da aplicação OAuth2 da SoftCS, usadas só pela busca "Buscar da
--- SoftCS" na aba Agentes (não é mais usado no caminho do webhook).
+-- Credenciais da aplicação OAuth2 da SoftCS, usadas pela busca "Buscar tickets".
 create table if not exists settings (
   key text primary key,
   value text not null,
   updated_at timestamptz not null default now()
 );
 
--- Guarda o access_token do OAuth da SoftCS (e o refresh_token, se a aplicação
--- tiver o escopo offline_access habilitado — sem ele, refresh_token fica nulo
--- e é preciso clicar em "Conectar" de novo quando o access_token expirar).
--- Linha única (id sempre 1).
+-- access_token/refresh_token do OAuth da SoftCS. Linha única (id sempre 1).
 create table if not exists softcs_oauth_tokens (
   id integer primary key default 1,
   access_token text not null,
@@ -48,12 +42,17 @@ create table if not exists softcs_oauth_tokens (
 -- Caso a tabela já existisse de uma versão anterior com refresh_token not null.
 alter table softcs_oauth_tokens alter column refresh_token drop not null;
 
--- Estado temporário do fluxo OAuth (Authorization Code + PKCE), usado só entre
--- /api/oauth-start e /api/oauth-callback. Fica no banco (não em cookie) porque
--- a Vercel expõe várias URLs pro mesmo projeto e um cookie setado numa não é
--- enviado de volta pra outra.
+-- Estado temporário do fluxo OAuth (Authorization Code + PKCE).
 create table if not exists oauth_pkce_state (
   state text primary key,
   code_verifier text not null,
   created_at timestamptz not null default now()
+);
+
+-- Nome amigável pra cada coluna do Kanban (stageId), preenchido manualmente no
+-- painel — a API pública da SoftCS não retorna o nome do estágio, só o ID.
+create table if not exists stage_labels (
+  stage_id text primary key,
+  label text not null,
+  updated_at timestamptz not null default now()
 );

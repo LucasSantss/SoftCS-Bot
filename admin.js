@@ -18,6 +18,7 @@ const topbarTitle = document.getElementById("topbarTitle");
 const topbarSub = document.getElementById("topbarSub");
 
 const TAB_META = {
+  tickets: { title: "Tickets", sub: "Consulta os tickets da SoftCS, agrupados pelas colunas do Kanban" },
   agents: { title: "Agentes", sub: "Mapeamento entre usuário SoftCS e @username no Telegram" },
   chats: { title: "Chats do Telegram", sub: "Grupos e canais que recebem a notificação de cada ticket" },
 };
@@ -44,14 +45,17 @@ const agentList = document.getElementById("agentList");
 const agentEmpty = document.getElementById("agentEmpty");
 
 let knownAgentIds = new Set();
+let agentUsernameById = new Map();
 
 async function loadAgents() {
   try {
     const agents = await api("/api/agents");
     knownAgentIds = new Set(agents.map((a) => a.softcs_user_id));
+    agentUsernameById = new Map(agents.map((a) => [a.softcs_user_id, a.telegram_username]));
     agentList.innerHTML = "";
     agentEmpty.style.display = agents.length ? "none" : "block";
     for (const agent of agents) renderAgentRow(agent);
+    if (lastCreators.length) renderCreators(lastCreators);
   } catch (err) {
     setStatus(agentStatus, err.message, true);
   }
@@ -97,6 +101,93 @@ agentForm.addEventListener("submit", async (event) => {
   }
 });
 
+// ─── Criadores encontrados (vem da busca feita na aba Tickets) ─────────────
+const creatorsList = document.getElementById("creatorsList");
+const creatorsEmpty = document.getElementById("creatorsEmpty");
+const creatorsStatus = document.getElementById("creatorsStatus");
+const saveAllBtn = document.getElementById("saveAllBtn");
+
+const creatorInputs = new Map(); // softcs_user_id -> <input>
+
+function renderCreators(creators) {
+  creatorsList.innerHTML = "";
+  creatorInputs.clear();
+  creatorsEmpty.style.display = creators.length ? "none" : "block";
+
+  for (const creator of creators) {
+    const row = document.createElement("div");
+    row.className = "list-item";
+    row.innerHTML = `
+      <div class="list-item-main">
+        <span class="list-item-title"></span>
+        <span class="list-item-sub"></span>
+      </div>
+      <div class="list-item-actions"></div>
+    `;
+    row.querySelector(".list-item-title").textContent = creator.name || "(sem nome — só ID)";
+    row.querySelector(".list-item-sub").textContent = [creator.email, creator.id].filter(Boolean).join(" · ");
+
+    const actions = row.querySelector(".list-item-actions");
+    const mapped = knownAgentIds.has(creator.id);
+
+    if (mapped) {
+      const badge = document.createElement("span");
+      badge.className = "badge on";
+      badge.textContent = "@" + (agentUsernameById.get(creator.id) || "?");
+      actions.appendChild(badge);
+    } else {
+      const usernameInput = document.createElement("input");
+      usernameInput.type = "text";
+      usernameInput.placeholder = "@username";
+      usernameInput.style.width = "140px";
+      creatorInputs.set(creator.id, usernameInput);
+
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "btn btn-primary";
+      saveBtn.textContent = "Salvar";
+      saveBtn.addEventListener("click", () => saveCreator(creator, usernameInput));
+
+      actions.append(usernameInput, saveBtn);
+    }
+
+    creatorsList.appendChild(row);
+  }
+}
+
+async function saveCreator(creator, usernameInput) {
+  const telegram_username = usernameInput.value.trim();
+  if (!telegram_username) {
+    usernameInput.focus();
+    return false;
+  }
+  await api("/api/agents", {
+    method: "POST",
+    body: JSON.stringify({ softcs_user_id: creator.id, telegram_username, display_name: creator.name }),
+  });
+  return true;
+}
+
+saveAllBtn.addEventListener("click", async () => {
+  const pending = lastCreators.filter((c) => creatorInputs.has(c.id) && creatorInputs.get(c.id).value.trim());
+  if (pending.length === 0) {
+    setStatus(creatorsStatus, "Nenhum @ preenchido pra salvar.", true);
+    return;
+  }
+  let saved = 0;
+  for (const creator of pending) {
+    try {
+      await saveCreator(creator, creatorInputs.get(creator.id));
+      saved += 1;
+    } catch (err) {
+      setStatus(creatorsStatus, `Parou em "${creator.name || creator.id}": ${err.message}`, true);
+      await loadAgents();
+      return;
+    }
+  }
+  setStatus(creatorsStatus, `${saved} agente(s) salvo(s).`, false);
+  await loadAgents();
+});
+
 // ─── Buscar da SoftCS ───────────────────────────────────────────────────────
 const connectionForm = document.getElementById("connectBox");
 const saveConnectionBtn = document.getElementById("saveConnectionBtn");
@@ -104,7 +195,6 @@ const connectBtn = document.getElementById("connectBtn");
 const connectionStatus = document.getElementById("connectionStatus");
 const discoverBtn = document.getElementById("discoverBtn");
 const discoverStatus = document.getElementById("discoverStatus");
-const discoverList = document.getElementById("discoverList");
 
 function connectionField(name) {
   return connectionForm.querySelector(`[name="${name}"]`);
@@ -141,80 +231,101 @@ connectBtn.addEventListener("click", () => {
   window.location.href = "/api/oauth-start";
 });
 
-function renderTicketRow(ticket) {
+// ─── Kanban de tickets ──────────────────────────────────────────────────────
+const kanbanBoard = document.getElementById("kanbanBoard");
+
+function renderTicketCard(ticket) {
   const creator = ticket.createdBy;
-  const row = document.createElement("div");
-  row.className = "list-item";
-  row.innerHTML = `
-    <div class="list-item-main">
-      <span class="list-item-title"></span>
-      <span class="list-item-sub"></span>
-    </div>
-    <div class="list-item-actions"></div>
+  const card = document.createElement("div");
+  card.className = "kanban-card";
+  card.innerHTML = `
+    <div class="kanban-card-title"></div>
+    <div class="kanban-card-meta"></div>
+    <div class="kanban-card-creator"></div>
   `;
-  row.querySelector(".list-item-title").textContent = ticket.title;
-  row.querySelector(".list-item-sub").textContent = [
-    ticket.clientName,
-    ticket.priority,
-    creator ? `criado por ${creator.name || creator.id}` : "criador desconhecido",
-  ]
+  card.querySelector(".kanban-card-title").textContent = ticket.title;
+  card.querySelector(".kanban-card-meta").textContent = [ticket.clientName, ticket.priority]
     .filter(Boolean)
     .join(" · ");
 
-  const actions = row.querySelector(".list-item-actions");
+  const creatorEl = card.querySelector(".kanban-card-creator");
+  if (creator) {
+    const mapped = knownAgentIds.has(creator.id);
+    creatorEl.innerHTML = `<span class="badge ${mapped ? "on" : "off"}">${mapped ? "@" + (agentUsernameById.get(creator.id) || "") : "sem @"}</span> ${creator.name || creator.id}`;
+  } else {
+    creatorEl.textContent = "criador desconhecido";
+  }
 
-  if (creator && knownAgentIds.has(creator.id)) {
-    const badge = document.createElement("span");
-    badge.className = "badge on";
-    badge.textContent = "já mapeado";
-    actions.appendChild(badge);
-  } else if (creator) {
-    const usernameInput = document.createElement("input");
-    usernameInput.type = "text";
-    usernameInput.placeholder = "@username";
-    usernameInput.style.width = "140px";
+  return card;
+}
 
-    const saveBtn = document.createElement("button");
-    saveBtn.className = "btn btn-primary";
-    saveBtn.textContent = "Salvar";
-    saveBtn.addEventListener("click", async () => {
-      const telegram_username = usernameInput.value.trim();
-      if (!telegram_username) {
-        usernameInput.focus();
-        return;
-      }
+function renderKanban(tickets) {
+  kanbanBoard.innerHTML = "";
+
+  const columns = new Map();
+  for (const ticket of tickets) {
+    const stage = ticket.stage ?? { id: "sem-estagio", name: "Sem estágio", position: 999, color: null };
+    if (!columns.has(stage.id)) columns.set(stage.id, { stage, tickets: [] });
+    columns.get(stage.id).tickets.push(ticket);
+  }
+
+  const sorted = [...columns.values()].sort((a, b) => a.stage.position - b.stage.position);
+
+  if (sorted.length === 0) {
+    kanbanBoard.innerHTML = '<p class="muted">Nenhum ticket pra mostrar ainda.</p>';
+    return;
+  }
+
+  for (const { stage, tickets: stageTickets } of sorted) {
+    const column = document.createElement("div");
+    column.className = "kanban-column";
+    const header = document.createElement("div");
+    header.className = "kanban-column-header";
+    if (stage.color) header.style.borderTopColor = stage.color;
+
+    const nameEl = document.createElement("span");
+    nameEl.className = "kanban-column-name";
+    nameEl.textContent = stage.name;
+    nameEl.title = "Clique pra renomear";
+    nameEl.addEventListener("click", async () => {
+      const newLabel = prompt("Nome dessa coluna:", stage.name);
+      if (!newLabel || newLabel === stage.name) return;
       try {
-        await api("/api/agents", {
+        await api("/api/stage-labels", {
           method: "POST",
-          body: JSON.stringify({ softcs_user_id: creator.id, telegram_username, display_name: creator.name }),
+          body: JSON.stringify({ stage_id: stage.id, label: newLabel }),
         });
-        await loadAgents();
-        setStatus(discoverStatus, `${creator.name || creator.id} adicionado.`, false);
-        renderTickets(lastTickets);
+        nameEl.textContent = newLabel;
       } catch (err) {
         setStatus(discoverStatus, err.message, true);
       }
     });
 
-    actions.append(usernameInput, saveBtn);
+    const countEl = document.createElement("span");
+    countEl.className = "kanban-column-count";
+    countEl.textContent = stageTickets.length;
+
+    header.append(nameEl, countEl);
+    column.appendChild(header);
+
+    const cardsWrap = document.createElement("div");
+    cardsWrap.className = "kanban-column-cards";
+    for (const ticket of stageTickets) cardsWrap.appendChild(renderTicketCard(ticket));
+    column.appendChild(cardsWrap);
+
+    kanbanBoard.appendChild(column);
   }
-
-  discoverList.appendChild(row);
 }
 
-let lastTickets = [];
-
-function renderTickets(tickets) {
-  discoverList.innerHTML = "";
-  for (const ticket of tickets) renderTicketRow(ticket);
-}
+// ─── Busca (alimenta o Kanban acima e os "Criadores encontrados" na aba Agentes) ──
+let lastCreators = [];
 
 discoverBtn.addEventListener("click", async () => {
-  discoverList.innerHTML = "";
+  kanbanBoard.innerHTML = "";
   setStatus(discoverStatus, "Buscando tickets na SoftCS…", false);
   try {
     const data = await api("/api/discover-tickets");
-    lastTickets = data.tickets;
+    lastCreators = data.creators;
 
     if (data.tickets.length === 0) {
       setStatus(discoverStatus, `Nenhum ticket encontrado (${data.clientsScanned} clientes verificados).`, true);
@@ -227,9 +338,14 @@ discoverBtn.addEventListener("click", async () => {
         true
       );
     } else {
-      setStatus(discoverStatus, `${data.tickets.length} ticket(s) encontrado(s).`, false);
+      setStatus(
+        discoverStatus,
+        `${data.tickets.length} ticket(s) em ${data.clientsScanned} clientes, ${data.creators.length} criador(es) único(s).`,
+        false
+      );
     }
-    renderTickets(data.tickets);
+    renderKanban(data.tickets);
+    renderCreators(lastCreators);
   } catch (err) {
     setStatus(discoverStatus, err.message, true);
   }
