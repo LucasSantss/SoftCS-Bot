@@ -15,7 +15,7 @@ const routes = {
   '/api/settings': () => import('./api/settings.js'),
   '/api/oauth-start': () => import('./api/oauth-start.js'),
   '/api/oauth-callback': () => import('./api/oauth-callback.js'),
-  '/api/discover-creators': () => import('./api/discover-creators.js'),
+  '/api/discover-tickets': () => import('./api/discover-tickets.js'),
 };
 
 function augmentResponse(res) {

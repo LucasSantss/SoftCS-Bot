@@ -141,7 +141,8 @@ connectBtn.addEventListener("click", () => {
   window.location.href = "/api/oauth-start";
 });
 
-function renderDiscoverRow(creator) {
+function renderTicketRow(ticket) {
+  const creator = ticket.createdBy;
   const row = document.createElement("div");
   row.className = "list-item";
   row.innerHTML = `
@@ -149,59 +150,86 @@ function renderDiscoverRow(creator) {
       <span class="list-item-title"></span>
       <span class="list-item-sub"></span>
     </div>
-    <div class="list-item-actions">
-      <input type="text" placeholder="@username" style="width:160px" />
-      <button class="btn btn-primary">Salvar</button>
-    </div>
+    <div class="list-item-actions"></div>
   `;
-  row.querySelector(".list-item-title").textContent = creator.name || "(sem nome — só ID)";
-  row.querySelector(".list-item-sub").textContent = [creator.email, creator.id].filter(Boolean).join(" · ");
+  row.querySelector(".list-item-title").textContent = ticket.title;
+  row.querySelector(".list-item-sub").textContent = [
+    ticket.clientName,
+    ticket.priority,
+    creator ? `criado por ${creator.name || creator.id}` : "criador desconhecido",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
-  const usernameInput = row.querySelector('input[type="text"]');
-  row.querySelector("button").addEventListener("click", async () => {
-    const telegram_username = usernameInput.value.trim();
-    if (!telegram_username) {
-      usernameInput.focus();
-      return;
-    }
-    try {
-      await api("/api/agents", {
-        method: "POST",
-        body: JSON.stringify({ softcs_user_id: creator.id, telegram_username, display_name: creator.name }),
-      });
-      row.remove();
-      await loadAgents();
-      setStatus(discoverStatus, `${creator.name || creator.id} adicionado.`, false);
-    } catch (err) {
-      setStatus(discoverStatus, err.message, true);
-    }
-  });
+  const actions = row.querySelector(".list-item-actions");
+
+  if (creator && knownAgentIds.has(creator.id)) {
+    const badge = document.createElement("span");
+    badge.className = "badge on";
+    badge.textContent = "já mapeado";
+    actions.appendChild(badge);
+  } else if (creator) {
+    const usernameInput = document.createElement("input");
+    usernameInput.type = "text";
+    usernameInput.placeholder = "@username";
+    usernameInput.style.width = "140px";
+
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "btn btn-primary";
+    saveBtn.textContent = "Salvar";
+    saveBtn.addEventListener("click", async () => {
+      const telegram_username = usernameInput.value.trim();
+      if (!telegram_username) {
+        usernameInput.focus();
+        return;
+      }
+      try {
+        await api("/api/agents", {
+          method: "POST",
+          body: JSON.stringify({ softcs_user_id: creator.id, telegram_username, display_name: creator.name }),
+        });
+        await loadAgents();
+        setStatus(discoverStatus, `${creator.name || creator.id} adicionado.`, false);
+        renderTickets(lastTickets);
+      } catch (err) {
+        setStatus(discoverStatus, err.message, true);
+      }
+    });
+
+    actions.append(usernameInput, saveBtn);
+  }
+
   discoverList.appendChild(row);
+}
+
+let lastTickets = [];
+
+function renderTickets(tickets) {
+  discoverList.innerHTML = "";
+  for (const ticket of tickets) renderTicketRow(ticket);
 }
 
 discoverBtn.addEventListener("click", async () => {
   discoverList.innerHTML = "";
   setStatus(discoverStatus, "Buscando tickets na SoftCS…", false);
   try {
-    const data = await api("/api/discover-creators");
-    const newOnes = data.creators.filter((c) => !knownAgentIds.has(c.id));
+    const data = await api("/api/discover-tickets");
+    lastTickets = data.tickets;
 
-    if (data.creators.length === 0) {
+    if (data.tickets.length === 0) {
       setStatus(discoverStatus, `Nenhum ticket encontrado (${data.clientsScanned} clientes verificados).`, true);
       return;
     }
     if (!data.hasNames) {
       setStatus(
         discoverStatus,
-        `${data.creators.length} criador(es) encontrado(s), mas a API não retornou nome/e-mail — só o ID. Vai precisar identificar cada um manualmente.`,
+        `${data.tickets.length} ticket(s) encontrado(s), mas a API não retornou nome/e-mail do criador — só o ID.`,
         true
       );
-    } else if (newOnes.length === 0) {
-      setStatus(discoverStatus, `${data.creators.length} criador(es) encontrado(s), todos já cadastrados.`, false);
     } else {
-      setStatus(discoverStatus, `${newOnes.length} novo(s) de ${data.creators.length}. Preencha o @ e salve.`, false);
+      setStatus(discoverStatus, `${data.tickets.length} ticket(s) encontrado(s).`, false);
     }
-    for (const creator of newOnes) renderDiscoverRow(creator);
+    renderTickets(data.tickets);
   } catch (err) {
     setStatus(discoverStatus, err.message, true);
   }

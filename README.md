@@ -27,17 +27,26 @@ depois do deploy direto na URL do domínio (`index.html`), e fica salvo no Neon.
 A API pública da SoftCS (`/clients/{clientId}/tickets`) documenta o campo do ticket como
 `createdById` — só um ID, sem nome. Na prática, porém, a resposta real de alguns tickets
 trouxe um objeto `createdBy: { id, name, email }` embutido — é isso que
-`api/discover-creators.js` tenta ler. Se a sua conta não retornar esse objeto expandido,
+`api/discover-tickets.js` tenta ler. Se a sua conta não retornar esse objeto expandido,
 a busca ainda funciona, só que sem nome (você vê apenas o ID e precisa identificar a
 pessoa de outra forma).
+
+> Nota técnica: a API pagina como `{ data: [...] }`, não `{ items: [...] }` como a
+> documentação sugere — `extractItems()` em `api/discover-tickets.js` lida com os dois
+> formatos.
 
 Na aba **Agentes**:
 
 - **Buscar da SoftCS**: conecta a aplicação OAuth2 (Client ID/Secret/Redirect URI) e
-  busca os tickets dos primeiros clientes retornados, extraindo os criadores únicos
-  (nome + e-mail, quando disponíveis). Você só preenche o `@` de cada um.
+  lista os tickets dos primeiros clientes retornados (título, cliente, prioridade, quem
+  criou). Pra cada criador que ainda não está mapeado, aparece um campo pra você
+  preencher o `@` e salvar direto ali.
 - **Novo agente**: cadastro manual (ID + `@` + nome opcional), pra quando preferir digitar
   direto ou a busca não trouxer nome.
+
+> Sem o escopo `offline_access` (não habilitado por padrão na aplicação da SoftCS), o
+> `access_token` dura ~1h e não renova sozinho — se "Buscar tickets" der erro de token
+> expirado, é só clicar em **Conectar** de novo.
 
 ## Setup
 
@@ -71,9 +80,9 @@ Na aba **Agentes**, seção "Buscar da SoftCS":
    redirect URI `https://SEU-DOMINIO.vercel.app/api/oauth-callback`.
 2. Preencha Client ID, Client Secret e Redirect URI no painel e clique em **Salvar**.
 3. Clique em **Conectar** — conclui o fluxo OAuth2 (Authorization Code + PKCE) e salva o
-   token no Neon (renovado automaticamente depois, via `lib/softcs-api.js`).
-4. Clique em **Buscar tickets** — lista os criadores únicos encontrados; preencha o `@`
-   e salve cada um.
+   token no Neon.
+4. Clique em **Buscar tickets** — lista os tickets encontrados com quem criou cada um;
+   preencha o `@` e salve pra cada criador ainda não mapeado.
 
 Na aba **Chats**: cada grupo/canal que deve receber as notificações. Descubra o `chat_id`
 enviando uma mensagem no grupo (com o bot já adicionado) e acessando
@@ -120,7 +129,7 @@ api/
   settings.js              credenciais OAuth da SoftCS (tabela settings)
   oauth-start.js            passo 1 da conexão OAuth (botão "Conectar")
   oauth-callback.js          passo 2 da conexão OAuth
-  discover-creators.js        busca tickets na SoftCS e extrai os criadores únicos
+  discover-tickets.js         lista os tickets na SoftCS com quem criou cada um
 lib/
   db.js                 conexão com o Neon
   agents.js              busca o @username cadastrado pro criador do ticket
