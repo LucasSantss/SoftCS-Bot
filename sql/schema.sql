@@ -33,3 +33,13 @@ create table if not exists telegram_chats (
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
+
+-- Estado temporário do fluxo OAuth (Authorization Code + PKCE), usado só entre
+-- /api/oauth-start e /api/oauth-callback. Substitui cookies, que não sobrevivem
+-- a redirecionamentos entre domínios diferentes da Vercel (produção vs preview).
+-- Linhas somem sozinhas (ver limpeza por expiração em lib/softcs.js).
+create table if not exists oauth_pkce_state (
+  state text primary key,
+  code_verifier text not null,
+  created_at timestamptz not null default now()
+);

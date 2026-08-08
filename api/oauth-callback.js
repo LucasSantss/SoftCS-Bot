@@ -1,17 +1,11 @@
 import sql from '../lib/db.js';
 
-function parseCookies(header) {
-  const cookies = {};
-  (header ?? '').split(';').forEach((part) => {
-    const [key, ...rest] = part.trim().split('=');
-    if (key) cookies[key] = rest.join('=');
-  });
-  return cookies;
-}
+const STATE_TTL_MS = 10 * 60 * 1000;
 
-// Passo 2 do fluxo OAuth: recebe o `code` da SoftCS, troca por access/refresh
-// token e grava em softcs_oauth_tokens. Só precisa rodar uma vez (o token é
-// renovado sozinho depois, via lib/softcs.js).
+// Passo 2 do fluxo OAuth: recebe o `code` da SoftCS, busca o code_verifier
+// guardado em /api/oauth-start (pelo `state`), troca por access/refresh token e
+// grava em softcs_oauth_tokens. Só precisa rodar uma vez (o token é renovado
+// sozinho depois, via lib/softcs.js).
 export default async function handler(req, res) {
   const { code, state, error } = req.query;
 
@@ -20,9 +14,27 @@ export default async function handler(req, res) {
     return;
   }
 
-  const cookies = parseCookies(req.headers.cookie);
-  if (!state || state !== cookies.softcs_oauth_state) {
-    res.status(400).send('state inválido ou expirado — refaça o fluxo acessando /api/oauth-start');
+  if (!state || !code) {
+    res.status(400).send('code ou state ausentes na resposta da SoftCS.');
+    return;
+  }
+
+  const rows = await sql`
+    select code_verifier, created_at from oauth_pkce_state where state = ${state}
+  `;
+  const row = rows[0];
+
+  if (!row) {
+    res
+      .status(400)
+      .send('state não encontrado (já usado ou nunca existiu) — refaça o fluxo acessando /api/oauth-start');
+    return;
+  }
+
+  await sql`delete from oauth_pkce_state where state = ${state}`;
+
+  if (Date.now() - new Date(row.created_at).getTime() > STATE_TTL_MS) {
+    res.status(400).send('state expirado (mais de 10 minutos) — refaça o fluxo acessando /api/oauth-start');
     return;
   }
 
@@ -32,7 +44,7 @@ export default async function handler(req, res) {
     redirect_uri: process.env.SOFTCS_REDIRECT_URI,
     client_id: process.env.SOFTCS_CLIENT_ID,
     client_secret: process.env.SOFTCS_CLIENT_SECRET,
-    code_verifier: cookies.softcs_pkce_verifier,
+    code_verifier: row.code_verifier,
   });
 
   const response = await fetch('https://admin.softcs.com.br/api/public/v1/oauth/token', {
