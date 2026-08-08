@@ -23,3 +23,32 @@ create table if not exists telegram_chats (
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
+
+-- Credenciais da aplicação OAuth2 da SoftCS, usadas só pela busca "Buscar da
+-- SoftCS" na aba Agentes (não é mais usado no caminho do webhook).
+create table if not exists settings (
+  key text primary key,
+  value text not null,
+  updated_at timestamptz not null default now()
+);
+
+-- Guarda o par access_token/refresh_token do OAuth da SoftCS.
+-- Linha única (id sempre 1); o token é renovado automaticamente antes de expirar.
+create table if not exists softcs_oauth_tokens (
+  id integer primary key default 1,
+  access_token text not null,
+  refresh_token text not null,
+  expires_at timestamptz not null,
+  updated_at timestamptz not null default now(),
+  constraint single_row check (id = 1)
+);
+
+-- Estado temporário do fluxo OAuth (Authorization Code + PKCE), usado só entre
+-- /api/oauth-start e /api/oauth-callback. Fica no banco (não em cookie) porque
+-- a Vercel expõe várias URLs pro mesmo projeto e um cookie setado numa não é
+-- enviado de volta pra outra.
+create table if not exists oauth_pkce_state (
+  state text primary key,
+  code_verifier text not null,
+  created_at timestamptz not null default now()
+);

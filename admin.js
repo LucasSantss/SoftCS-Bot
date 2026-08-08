@@ -97,45 +97,51 @@ agentForm.addEventListener("submit", async (event) => {
   }
 });
 
-// ─── Importar da SoftCS ─────────────────────────────────────────────────────
-// Roda inteiramente no navegador: só extrai { id, name, email } de dentro de
-// createdBy — nada do resto do JSON colado (incluindo qualquer dado sensível)
-// é enviado pro servidor. Só o que o usuário decidir "Salvar" vira uma
-// chamada normal pra /api/agents, igual ao formulário manual acima.
-const importJsonInput = document.getElementById("importJsonInput");
-const extractBtn = document.getElementById("extractBtn");
-const importStatus = document.getElementById("importStatus");
-const importList = document.getElementById("importList");
+// ─── Buscar da SoftCS ───────────────────────────────────────────────────────
+const connectionForm = document.getElementById("connectBox");
+const saveConnectionBtn = document.getElementById("saveConnectionBtn");
+const connectBtn = document.getElementById("connectBtn");
+const connectionStatus = document.getElementById("connectionStatus");
+const discoverBtn = document.getElementById("discoverBtn");
+const discoverStatus = document.getElementById("discoverStatus");
+const discoverList = document.getElementById("discoverList");
 
-function findTicketsWithCreator(value, out = []) {
-  if (Array.isArray(value)) {
-    value.forEach((item) => findTicketsWithCreator(item, out));
-  } else if (value && typeof value === "object") {
-    if (value.createdBy && typeof value.createdBy === "object") out.push(value);
-    if (Array.isArray(value.items)) findTicketsWithCreator(value.items, out);
-  }
-  return out;
+function connectionField(name) {
+  return connectionForm.querySelector(`[name="${name}"]`);
 }
 
-function extractCreators(raw) {
-  let parsed;
+async function loadConnection() {
   try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error("JSON inválido — cole o texto exatamente como veio.");
+    const data = await api("/api/settings");
+    connectionField("softcs_client_id").value = data.softcs_client_id;
+    connectionField("softcs_client_secret").value = data.softcs_client_secret;
+    connectionField("softcs_redirect_uri").value = data.softcs_redirect_uri;
+    connectionStatus.textContent = data.oauth_connected ? "conectado" : "não conectado";
+    connectionStatus.className = "badge " + (data.oauth_connected ? "on" : "off");
+  } catch (err) {
+    setStatus(discoverStatus, err.message, true);
   }
-  const tickets = findTicketsWithCreator(parsed);
-  const byId = new Map();
-  for (const ticket of tickets) {
-    const c = ticket.createdBy;
-    if (c && c.id && !byId.has(c.id)) {
-      byId.set(c.id, { id: c.id, name: c.name || "", email: c.email || "" });
-    }
-  }
-  return [...byId.values()];
 }
 
-function renderImportRow(creator) {
+saveConnectionBtn.addEventListener("click", async () => {
+  const data = {
+    softcs_client_id: connectionField("softcs_client_id").value.trim(),
+    softcs_client_secret: connectionField("softcs_client_secret").value.trim(),
+    softcs_redirect_uri: connectionField("softcs_redirect_uri").value.trim(),
+  };
+  try {
+    await api("/api/settings", { method: "POST", body: JSON.stringify(data) });
+    setStatus(discoverStatus, "Configurações salvas.", false);
+  } catch (err) {
+    setStatus(discoverStatus, err.message, true);
+  }
+});
+
+connectBtn.addEventListener("click", () => {
+  window.location.href = "/api/oauth-start";
+});
+
+function renderDiscoverRow(creator) {
   const row = document.createElement("div");
   row.className = "list-item";
   row.innerHTML = `
@@ -148,7 +154,7 @@ function renderImportRow(creator) {
       <button class="btn btn-primary">Salvar</button>
     </div>
   `;
-  row.querySelector(".list-item-title").textContent = creator.name || "(sem nome)";
+  row.querySelector(".list-item-title").textContent = creator.name || "(sem nome — só ID)";
   row.querySelector(".list-item-sub").textContent = [creator.email, creator.id].filter(Boolean).join(" · ");
 
   const usernameInput = row.querySelector('input[type="text"]');
@@ -165,37 +171,40 @@ function renderImportRow(creator) {
       });
       row.remove();
       await loadAgents();
-      setStatus(importStatus, `${creator.name || creator.id} adicionado.`, false);
+      setStatus(discoverStatus, `${creator.name || creator.id} adicionado.`, false);
     } catch (err) {
-      setStatus(importStatus, err.message, true);
+      setStatus(discoverStatus, err.message, true);
     }
   });
-  importList.appendChild(row);
+  discoverList.appendChild(row);
 }
 
-extractBtn.addEventListener("click", () => {
-  let creators;
+discoverBtn.addEventListener("click", async () => {
+  discoverList.innerHTML = "";
+  setStatus(discoverStatus, "Buscando tickets na SoftCS…", false);
   try {
-    creators = extractCreators(importJsonInput.value.trim());
+    const data = await api("/api/discover-creators");
+    const newOnes = data.creators.filter((c) => !knownAgentIds.has(c.id));
+
+    if (data.creators.length === 0) {
+      setStatus(discoverStatus, `Nenhum ticket encontrado (${data.clientsScanned} clientes verificados).`, true);
+      return;
+    }
+    if (!data.hasNames) {
+      setStatus(
+        discoverStatus,
+        `${data.creators.length} criador(es) encontrado(s), mas a API não retornou nome/e-mail — só o ID. Vai precisar identificar cada um manualmente.`,
+        true
+      );
+    } else if (newOnes.length === 0) {
+      setStatus(discoverStatus, `${data.creators.length} criador(es) encontrado(s), todos já cadastrados.`, false);
+    } else {
+      setStatus(discoverStatus, `${newOnes.length} novo(s) de ${data.creators.length}. Preencha o @ e salve.`, false);
+    }
+    for (const creator of newOnes) renderDiscoverRow(creator);
   } catch (err) {
-    setStatus(importStatus, err.message, true);
-    return;
+    setStatus(discoverStatus, err.message, true);
   }
-
-  importList.innerHTML = "";
-  if (creators.length === 0) {
-    setStatus(importStatus, "Nenhum campo createdBy encontrado nesse JSON.", true);
-    return;
-  }
-
-  const newOnes = creators.filter((c) => !knownAgentIds.has(c.id));
-  if (newOnes.length === 0) {
-    setStatus(importStatus, `${creators.length} criador(es) encontrado(s), todos já cadastrados.`, false);
-    return;
-  }
-
-  setStatus(importStatus, `${newOnes.length} novo(s) de ${creators.length} encontrado(s). Preencha o @ e salve.`, false);
-  for (const creator of newOnes) renderImportRow(creator);
 });
 
 // ─── Chats ──────────────────────────────────────────────────────────────────
@@ -279,6 +288,7 @@ chatForm.addEventListener("submit", async (event) => {
 function boot() {
   loadAgents();
   loadChats();
+  loadConnection();
 }
 
 boot();

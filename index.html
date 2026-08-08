@@ -63,25 +63,45 @@
           </div>
 
           <div class="card">
-            <h3>Importar da SoftCS</h3>
-            <p class="muted">
-              Cole aqui o JSON de tickets exportado/inspecionado da SoftCS. A extração roda
-              só no seu navegador — nenhum campo além de ID, nome e e-mail do criador é
-              enviado pra este servidor (o resto, incluindo qualquer dado sensível do JSON,
-              fica só na sua tela e é descartado).
-            </p>
-            <textarea id="importJsonInput" rows="4" placeholder='Cole aqui o JSON (ex: { "items": [ ... ] })'></textarea>
-            <div class="form-actions">
-              <button type="button" id="extractBtn" class="btn btn-secondary">Extrair criadores</button>
+            <h3>Buscar da SoftCS</h3>
+
+            <div id="connectBox">
+              <p class="muted">
+                Conecte a aplicação OAuth2 da SoftCS pra buscar os tickets e listar quem
+                criou cada um (nome e e-mail), sem precisar colar nada manualmente.
+              </p>
+              <div class="form-grid">
+                <div>
+                  <label class="field-label">Client ID</label>
+                  <input name="softcs_client_id" type="text" />
+                </div>
+                <div>
+                  <label class="field-label">Client Secret</label>
+                  <input name="softcs_client_secret" type="text" />
+                </div>
+                <div class="full">
+                  <label class="field-label">Redirect URI</label>
+                  <input name="softcs_redirect_uri" type="text" placeholder="https://SEU-DOMINIO.vercel.app/api/oauth-callback" />
+                </div>
+              </div>
+              <div class="form-actions">
+                <button type="button" id="saveConnectionBtn" class="btn btn-secondary">Salvar</button>
+                <button type="button" id="connectBtn" class="btn btn-primary">Conectar</button>
+                <span id="connectionStatus" class="badge off">não conectado</span>
+              </div>
             </div>
-            <p id="importStatus" class="status-line"></p>
-            <div class="list" id="importList"></div>
+
+            <div class="form-actions" style="margin-top: 0.75rem;">
+              <button type="button" id="discoverBtn" class="btn btn-primary">Buscar tickets</button>
+            </div>
+            <p id="discoverStatus" class="status-line"></p>
+            <div class="list" id="discoverList"></div>
           </div>
 
           <div class="list" id="agentList"></div>
           <div class="empty-state" id="agentEmpty" style="display:none">
             <p>Nenhum agente cadastrado ainda.</p>
-            <p class="muted">A API da SoftCS não expõe essa lista — cadastre à mão conforme for identificando quem criou cada ticket, ou use a importação acima.</p>
+            <p class="muted">Use a busca acima, ou cadastre à mão pelo formulário.</p>
           </div>
         </div>
 
