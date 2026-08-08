@@ -395,8 +395,6 @@ discoverBtn.addEventListener("click", async () => {
   }
 });
 
-loadMoreBtn.addEventListener("click", () => runDiscover(nextOffset));
-
 // ─── Chats ──────────────────────────────────────────────────────────────────
 const chatForm = document.getElementById("chatForm");
 const chatStatus = document.getElementById("chatStatus");
