@@ -1,11 +1,15 @@
 # SoftCS → Telegram
 
-Recebe o payload do webhook de ticket da SoftCS e posta um resumo em um ou mais chats do
-Telegram, mencionando quem criou o ticket (`@username`), usando um mapeamento manual entre
-o ID de usuário da SoftCS e o `@username` no Telegram. O caminho do webhook em si
-(`api/webhook.js`) não usa a API autenticada da SoftCS — só recebe o POST e monta a
-mensagem com o que vier nele. A API autenticada (OAuth2) é usada só pela aba **Tickets**,
-pra consultar os tickets e ajudar a montar esse mapeamento.
+Recebe o payload do webhook de ticket da SoftCS (criação **e** atualização) e posta uma
+mensagem em um ou mais chats do Telegram — com título, estágio do Kanban, link direto pro
+ticket (`https://admin.softcs.com.br/pt-br/tickets/{publicId}`) e a menção (`@username`) de
+quem criou o ticket. A mensagem só vai pro(s) chat(s) onde esse criador está cadastrado como
+membro (aba Chats) — é o único jeito da `@menção` realmente notificar alguém no Telegram, já
+que só funciona se a pessoa for membro do chat/grupo. Se o criador não estiver em nenhum chat
+cadastrado, cai pra todos os chats ativos (sem mention funcional, só o nome). O caminho do
+webhook em si (`api/webhook.js`) não usa a API autenticada da SoftCS — só recebe o POST e
+monta a mensagem com o que vier nele. A API autenticada (OAuth2) é usada só pela aba
+**Tickets**, pra consultar os tickets e ajudar a montar o mapeamento de agentes.
 
 Só existem duas variáveis de ambiente: `DATABASE_URL` e `TELEGRAM_BOT_TOKEN`. Tudo o resto
 (credenciais OAuth2 da SoftCS, mapeamento de agentes, chats do Telegram, nomes das colunas
@@ -19,9 +23,12 @@ salvo no Neon.
 > ⚠️ **Pendência conhecida**: o parser em [api/webhook.js](api/webhook.js) foi escrito
 > com um formato de payload provisório (`{ event, eventId, data: { title, priority,
 > createdById, ... } }`), pois a documentação pública da SoftCS não descreve o corpo do
-> webhook — só a tela de configuração dentro do painel mostra isso. Assim que você tiver
-> um evento de teste real (o painel geralmente tem um botão "enviar teste"), ajuste
-> `parsePayload()` em `api/webhook.js` para bater com os campos reais.
+> webhook — só a tela de configuração dentro do painel mostra isso. `classifyEvent()`
+> também é um chute: usa regex (`/creat/i` pra criação, `/updat|chang|mov/i` pra
+> atualização) em cima de `event`/`type`, sem nunca ter visto o nome real desses eventos.
+> Assim que você tiver um evento de teste real (o painel geralmente tem um botão "enviar
+> teste"), ajuste `parsePayload()`/`classifyEvent()` em `api/webhook.js` para bater com os
+> campos e nomes de evento reais.
 
 ## O que a API pública da SoftCS entrega (e o que não entrega)
 
@@ -85,7 +92,13 @@ nome da coluna pra renomear.
   já preencheu, sem precisar clicar linha por linha.
 
 **Aba Chats**: chat_id de cada grupo/canal, com o botão **Testar** mandando uma mensagem
-de teste na hora pra confirmar que o chat_id está certo e o bot ainda posta ali.
+de teste na hora pra confirmar que o chat_id está certo e o bot ainda posta ali. Ao
+cadastrar um chat novo (ou abrindo o painel **Membros** de um já existente), dá pra marcar
+quais agentes fazem parte dele (multi-select, salvo em `chat_agents`) — quando um desses
+agentes é o criador de um ticket que é criado ou atualizado, a notificação vai
+especificamente pro(s) chat(s) onde ele é membro (é o que faz a `@menção` funcionar de
+verdade: Telegram só notifica quem está no grupo). Sem nenhum membro cadastrado pra aquele
+criador, a notificação cai pra todos os chats ativos.
 
 > Pra o token nunca expirar sem renovar sozinho, a aplicação OAuth2 na SoftCS precisa ter
 > o escopo `offline_access` habilitado (Identidade > "Continuar conectada mesmo após
@@ -142,7 +155,10 @@ encontrados" e clique em **Salvar todos preenchidos** (ou cadastre manualmente).
 Na aba **Chats**, cadastre cada grupo/canal que deve receber as notificações. Descubra o
 `chat_id` enviando uma mensagem no grupo (com o bot já adicionado) e acessando
 `https://api.telegram.org/bot<TOKEN>/getUpdates` — o `chat.id` aparece no JSON
-(grupos costumam ter id negativo). Use o botão **Testar** pra confirmar.
+(grupos costumam ter id negativo). Use o botão **Testar** pra confirmar. Marque também
+quais agentes são membros daquele chat (select múltiplo no formulário, ou no painel
+**Membros** de um chat já cadastrado) — só assim a notificação de ticket vai parar
+especificamente ali quando um desses agentes for o criador.
 
 > **Importante sobre a menção `@username`**: o Telegram só notifica a pessoa se ela
 > (a) tiver um `@username` público configurado e (b) for membro do chat/grupo onde o
@@ -154,10 +170,12 @@ Na aba **Chats**, cadastre cada grupo/canal que deve receber as notificações. 
 No painel da SoftCS (tela de Webhooks), cadastre:
 
 - URL: `https://SEU-DOMINIO.vercel.app/api/webhook`
-- Evento: criação de ticket
+- Eventos: criação **e** atualização de ticket (`classifyEvent()` em `api/webhook.js`
+  tenta reconhecer os dois pelo nome do evento — ver pendência conhecida acima)
 
 Dispare o evento de teste, se existir, e confira no log da Vercel (`vercel logs`)
-o corpo recebido — ajuste `parsePayload()` em `api/webhook.js` conforme o formato real.
+o corpo recebido — ajuste `parsePayload()`/`classifyEvent()` em `api/webhook.js` conforme
+o formato real.
 
 ## Rodando localmente
 
@@ -178,9 +196,11 @@ index.html             painel único (sem login), servido na raiz do domínio: a
 admin.css               visual baseado no design system do CodeRise Hub
 admin.js                 lógica das abas (fetch nas APIs abaixo)
 api/
-  webhook.js            endpoint que a SoftCS chama a cada evento de ticket
+  webhook.js            endpoint que a SoftCS chama a cada evento de ticket (criação e
+                        atualização) — resolve @menção, nome do estágio e link do ticket,
+                        e manda pro(s) chat(s) onde o criador é membro (chat_agents)
   agents.js              CRUD do mapeamento agente SoftCS -> @telegram
-  chats.js                CRUD dos chats do Telegram
+  chats.js                CRUD dos chats do Telegram + membros (chat_agents)
   settings.js              credenciais OAuth da SoftCS (tabela settings)
   oauth-start.js            passo 1 da conexão OAuth (botão "Conectar")
   oauth-callback.js          passo 2 da conexão OAuth
@@ -199,6 +219,7 @@ lib/
 sql/
   schema.sql            tabelas: agent_mapping (softcs_user_id, telegram_username opcional,
                          display_name, email), processed_webhook_events, telegram_chats,
-                         settings, softcs_oauth_tokens, oauth_pkce_state, stage_labels
+                         chat_agents (membros de cada chat), settings, softcs_oauth_tokens,
+                         oauth_pkce_state, stage_labels
 dev-server.js          servidor local leve pra `npm run dev` (sem precisar de vercel CLI)
 ```

@@ -509,6 +509,22 @@ const chatForm = document.getElementById("chatForm");
 const chatStatus = document.getElementById("chatStatus");
 const chatList = document.getElementById("chatList");
 const chatEmpty = document.getElementById("chatEmpty");
+const newChatMembers = document.getElementById("newChatMembers");
+
+// Preenche um <select multiple> com todos os agentes conhecidos, marcando os
+// que já pertencem ao chat (selectedIds). Usado no form "Novo chat" e no
+// painel de edição de membros de cada chat existente.
+function populateAgentOptions(selectEl, selectedIds) {
+  const selected = new Set(selectedIds || []);
+  selectEl.innerHTML = "";
+  for (const agent of agentInfoById.values()) {
+    const option = document.createElement("option");
+    option.value = agent.softcs_user_id;
+    option.textContent = `${agent.display_name || agent.email || agent.softcs_user_id}${agent.telegram_username ? " (@" + agent.telegram_username + ")" : " (sem @)"}`;
+    option.selected = selected.has(agent.softcs_user_id);
+    selectEl.appendChild(option);
+  }
+}
 
 async function loadChats() {
   try {
@@ -516,12 +532,15 @@ async function loadChats() {
     chatList.innerHTML = "";
     chatEmpty.style.display = chats.length ? "none" : "block";
     for (const chat of chats) renderChatRow(chat);
+    populateAgentOptions(newChatMembers, []);
   } catch (err) {
     setStatus(chatStatus, err.message, true);
   }
 }
 
 function renderChatRow(chat) {
+  const wrapper = document.createElement("div");
+
   const row = document.createElement("div");
   row.className = "list-item";
   row.innerHTML = `
@@ -531,6 +550,7 @@ function renderChatRow(chat) {
     </div>
     <div class="list-item-actions">
       <span class="test-result status-line"></span>
+      <button class="btn btn-secondary members-btn">Membros (${(chat.member_ids || []).length})</button>
       <button class="btn btn-secondary test-btn">Testar</button>
       <label class="switch">
         <input type="checkbox" />
@@ -585,12 +605,60 @@ function renderChatRow(chat) {
     }
   });
 
-  chatList.appendChild(row);
+  // ── Painel de membros (colapsado por padrão) ──
+  const membersPanel = document.createElement("div");
+  membersPanel.style.display = "none";
+  membersPanel.style.margin = "0.5rem 0 0.75rem";
+  membersPanel.innerHTML = `
+    <select multiple size="6"></select>
+    <div class="form-actions" style="margin-top: 0.5rem;">
+      <button type="button" class="btn btn-primary save-members-btn">Salvar membros</button>
+      <span class="members-status status-line"></span>
+    </div>
+  `;
+  const membersSelect = membersPanel.querySelector("select");
+  const membersStatus = membersPanel.querySelector(".members-status");
+
+  row.querySelector(".members-btn").addEventListener("click", () => {
+    const isOpen = membersPanel.style.display !== "none";
+    if (isOpen) {
+      membersPanel.style.display = "none";
+    } else {
+      populateAgentOptions(membersSelect, chat.member_ids);
+      membersPanel.style.display = "block";
+    }
+  });
+
+  membersPanel.querySelector(".save-members-btn").addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const memberIds = Array.from(membersSelect.selectedOptions).map((o) => o.value);
+    btn.disabled = true;
+    try {
+      await api("/api/chats", {
+        method: "POST",
+        body: JSON.stringify({ chat_id: chat.chat_id, label: chat.label, member_ids: memberIds }),
+      });
+      setStatus(membersStatus, "Salvo.", false);
+      await loadChats();
+    } catch (err) {
+      setStatus(membersStatus, err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  wrapper.append(row, membersPanel);
+  chatList.appendChild(wrapper);
 }
 
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(chatForm));
+  const memberIds = Array.from(newChatMembers.selectedOptions).map((o) => o.value);
+  const data = {
+    chat_id: chatForm.elements.chat_id.value.trim(),
+    label: chatForm.elements.label.value.trim(),
+    member_ids: memberIds,
+  };
   try {
     await api("/api/chats", { method: "POST", body: JSON.stringify(data) });
     chatForm.reset();
@@ -601,8 +669,8 @@ chatForm.addEventListener("submit", async (event) => {
   }
 });
 
-function boot() {
-  loadAgents();
+async function boot() {
+  await loadAgents(); // precisa terminar antes: loadChats popula o seletor de membros com agentInfoById
   loadChats();
   loadConnection();
 }

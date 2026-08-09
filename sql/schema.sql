@@ -62,3 +62,13 @@ create table if not exists stage_labels (
   label text not null,
   updated_at timestamptz not null default now()
 );
+
+-- Quais agentes pertencem a cada chat do Telegram. Usado pelo webhook pra
+-- mandar a notificação de um ticket só pro(s) chat(s) onde o criador é
+-- membro — é o único jeito da @menção realmente notificar alguém no Telegram
+-- (só funciona se a pessoa estiver no grupo).
+create table if not exists chat_agents (
+  chat_id text not null references telegram_chats (chat_id) on delete cascade,
+  softcs_user_id text not null references agent_mapping (softcs_user_id) on delete cascade,
+  primary key (chat_id, softcs_user_id)
+);

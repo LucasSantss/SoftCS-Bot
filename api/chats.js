@@ -3,16 +3,23 @@ import sql from '../lib/db.js';
 export default async function handler(req, res) {
   if (req.method === 'GET') {
     const rows = await sql`
-      select chat_id, label, active, created_at
-      from telegram_chats
-      order by created_at desc
+      select
+        c.chat_id, c.label, c.active, c.created_at,
+        coalesce(
+          json_agg(a.softcs_user_id) filter (where a.softcs_user_id is not null),
+          '[]'
+        ) as member_ids
+      from telegram_chats c
+      left join chat_agents a on a.chat_id = c.chat_id
+      group by c.chat_id, c.label, c.active, c.created_at
+      order by c.created_at desc
     `;
     res.status(200).json(rows);
     return;
   }
 
   if (req.method === 'POST') {
-    const { chat_id, label } = req.body ?? {};
+    const { chat_id, label, member_ids } = req.body ?? {};
     if (!chat_id) {
       res.status(400).json({ error: 'chat_id é obrigatório' });
       return;
@@ -23,6 +30,18 @@ export default async function handler(req, res) {
       values (${String(chat_id)}, ${label || null}, true)
       on conflict (chat_id) do update set label = excluded.label, active = true
     `;
+
+    if (Array.isArray(member_ids)) {
+      await sql`delete from chat_agents where chat_id = ${String(chat_id)}`;
+      for (const softcsUserId of member_ids) {
+        await sql`
+          insert into chat_agents (chat_id, softcs_user_id)
+          values (${String(chat_id)}, ${softcsUserId})
+          on conflict do nothing
+        `;
+      }
+    }
+
     res.status(200).json({ ok: true });
     return;
   }

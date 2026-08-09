@@ -147,10 +147,17 @@
         <div class="tab-panel" id="tab-chats">
           <div class="card">
             <h3>Novo chat</h3>
-            <form id="chatForm" class="create-row">
-              <input name="chat_id" placeholder="chat_id (ex: -1001234567890)" required />
-              <input name="label" placeholder="rótulo (ex: Suporte N1)" />
-              <button type="submit" class="btn btn-primary">+ Adicionar</button>
+            <form id="chatForm">
+              <div class="create-row">
+                <input name="chat_id" placeholder="chat_id (ex: -1001234567890)" required />
+                <input name="label" placeholder="rótulo (ex: Suporte N1)" />
+                <button type="submit" class="btn btn-primary">+ Adicionar</button>
+              </div>
+              <label class="field-label" style="margin-top: 0.75rem;">
+                Membros desse chat (quem deve ser mencionado quando um ticket criado por
+                eles for atualizado) — Ctrl/Cmd+clique pra selecionar vários
+              </label>
+              <select name="member_ids" id="newChatMembers" multiple size="6"></select>
             </form>
             <p id="chatStatus" class="status-line"></p>
           </div>
