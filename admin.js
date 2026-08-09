@@ -1,3 +1,10 @@
+function escapeHtml(text) {
+  return String(text ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
@@ -28,7 +35,6 @@ const TAB_META = {
   tickets: { title: "Tickets", sub: "Consulta os tickets da SoftCS, agrupados pelas colunas do Kanban" },
   agents: { title: "Agentes", sub: "Mapeamento entre usuário SoftCS e @username no Telegram" },
   chats: { title: "Chats do Telegram", sub: "Grupos e canais que recebem a notificação de cada ticket" },
-  debug: { title: "Debug", sub: "Payload cru da API da SoftCS — temporário" },
 };
 
 navItems.forEach((item) => {
@@ -52,14 +58,17 @@ const agentStatus = document.getElementById("agentStatus");
 const agentList = document.getElementById("agentList");
 const agentEmpty = document.getElementById("agentEmpty");
 
+// knownAgentIds: quem já tem @ cadastrado (é o que decide badge vs campo pra
+// preencher). agentInfoById: todo mundo importado (nome/e-mail), tenha @ ou
+// não — usado como fallback de nome quando o ticket em si não traz um.
 let knownAgentIds = new Set();
-let agentUsernameById = new Map();
+let agentInfoById = new Map();
 
 async function loadAgents() {
   try {
     const agents = await api("/api/agents");
-    knownAgentIds = new Set(agents.map((a) => a.softcs_user_id));
-    agentUsernameById = new Map(agents.map((a) => [a.softcs_user_id, a.telegram_username]));
+    knownAgentIds = new Set(agents.filter((a) => a.telegram_username).map((a) => a.softcs_user_id));
+    agentInfoById = new Map(agents.map((a) => [a.softcs_user_id, a]));
     agentList.innerHTML = "";
     agentEmpty.style.display = agents.length ? "none" : "block";
     for (const agent of agents) renderAgentRow(agent);
@@ -77,13 +86,53 @@ function renderAgentRow(agent) {
       <span class="list-item-title"></span>
       <span class="list-item-sub"></span>
     </div>
-    <div class="list-item-actions">
-      <button class="icon-btn danger-hover" title="Remover">🗑</button>
-    </div>
+    <div class="list-item-actions"></div>
   `;
-  row.querySelector(".list-item-title").textContent = `${agent.display_name || "(sem nome)"} · @${agent.telegram_username}`;
-  row.querySelector(".list-item-sub").textContent = agent.softcs_user_id;
-  row.querySelector("button").addEventListener("click", async () => {
+  row.querySelector(".list-item-title").textContent = agent.display_name || agent.email || "(sem nome)";
+  row.querySelector(".list-item-sub").textContent = [agent.email, agent.softcs_user_id].filter(Boolean).join(" · ");
+
+  const actions = row.querySelector(".list-item-actions");
+
+  if (agent.telegram_username) {
+    const badge = document.createElement("span");
+    badge.className = "badge on";
+    badge.textContent = "@" + agent.telegram_username;
+    actions.appendChild(badge);
+  } else {
+    const usernameInput = document.createElement("input");
+    usernameInput.type = "text";
+    usernameInput.placeholder = "@username";
+    usernameInput.style.width = "140px";
+
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "btn btn-primary";
+    saveBtn.textContent = "Salvar @";
+    saveBtn.addEventListener("click", async () => {
+      const telegram_username = usernameInput.value.trim();
+      if (!telegram_username) {
+        usernameInput.focus();
+        return;
+      }
+      try {
+        await api("/api/agents", {
+          method: "POST",
+          body: JSON.stringify({ softcs_user_id: agent.softcs_user_id, telegram_username }),
+        });
+        setStatus(agentStatus, "@ salvo.", false);
+        await loadAgents();
+      } catch (err) {
+        setStatus(agentStatus, err.message, true);
+      }
+    });
+
+    actions.append(usernameInput, saveBtn);
+  }
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.className = "icon-btn danger-hover";
+  deleteBtn.title = "Remover";
+  deleteBtn.textContent = "🗑";
+  deleteBtn.addEventListener("click", async () => {
     if (!confirm(`Remover "${agent.display_name || agent.softcs_user_id}"?`)) return;
     try {
       await api(`/api/agents?softcs_user_id=${encodeURIComponent(agent.softcs_user_id)}`, { method: "DELETE" });
@@ -93,6 +142,8 @@ function renderAgentRow(agent) {
       setStatus(agentStatus, err.message, true);
     }
   });
+  actions.appendChild(deleteBtn);
+
   agentList.appendChild(row);
 }
 
@@ -106,6 +157,31 @@ agentForm.addEventListener("submit", async (event) => {
     await loadAgents();
   } catch (err) {
     setStatus(agentStatus, err.message, true);
+  }
+});
+
+// ─── Importar usuários da SoftCS (nome + e-mail em lote) ───────────────────
+const importAgentsInput = document.getElementById("importAgentsInput");
+const importAgentsBtn = document.getElementById("importAgentsBtn");
+const importAgentsStatus = document.getElementById("importAgentsStatus");
+
+importAgentsBtn.addEventListener("click", async () => {
+  const raw = importAgentsInput.value.trim();
+  if (!raw) {
+    setStatus(importAgentsStatus, "Cole o payload antes de importar.", true);
+    return;
+  }
+  importAgentsBtn.disabled = true;
+  setStatus(importAgentsStatus, "Importando…", false);
+  try {
+    const data = await api("/api/import-agents", { method: "POST", body: JSON.stringify({ raw }) });
+    setStatus(importAgentsStatus, `${data.imported} usuário(s) importado(s)/atualizado(s).`, false);
+    importAgentsInput.value = "";
+    await loadAgents();
+  } catch (err) {
+    setStatus(importAgentsStatus, err.message, true);
+  } finally {
+    importAgentsBtn.disabled = false;
   }
 });
 
@@ -132,8 +208,12 @@ function renderCreators(creators) {
       </div>
       <div class="list-item-actions"></div>
     `;
-    row.querySelector(".list-item-title").textContent = creator.name || "(sem nome — só ID)";
-    row.querySelector(".list-item-sub").textContent = [creator.email, creator.id].filter(Boolean).join(" · ");
+    const known = agentInfoById.get(creator.id);
+    row.querySelector(".list-item-title").textContent =
+      creator.name || known?.display_name || known?.email || "(sem nome — só ID)";
+    row.querySelector(".list-item-sub").textContent = [creator.email || known?.email, creator.id]
+      .filter(Boolean)
+      .join(" · ");
 
     const actions = row.querySelector(".list-item-actions");
     const mapped = knownAgentIds.has(creator.id);
@@ -141,7 +221,7 @@ function renderCreators(creators) {
     if (mapped) {
       const badge = document.createElement("span");
       badge.className = "badge on";
-      badge.textContent = "@" + (agentUsernameById.get(creator.id) || "?");
+      badge.textContent = "@" + known.telegram_username;
       actions.appendChild(badge);
     } else {
       const usernameInput = document.createElement("input");
@@ -258,8 +338,11 @@ function renderTicketCard(ticket) {
 
   const creatorEl = card.querySelector(".kanban-card-creator");
   if (creator) {
+    const known = agentInfoById.get(creator.id);
     const mapped = knownAgentIds.has(creator.id);
-    creatorEl.innerHTML = `<span class="badge ${mapped ? "on" : "off"}">${mapped ? "@" + (agentUsernameById.get(creator.id) || "") : "sem @"}</span> ${creator.name || creator.id}`;
+    const label = escapeHtml(creator.name || known?.display_name || known?.email || creator.id);
+    const badgeText = mapped ? "@" + known.telegram_username : "sem @";
+    creatorEl.innerHTML = `<span class="badge ${mapped ? "on" : "off"}">${badgeText}</span> ${label}`;
   } else {
     creatorEl.textContent = "criador desconhecido";
   }
@@ -515,37 +598,6 @@ chatForm.addEventListener("submit", async (event) => {
     await loadChats();
   } catch (err) {
     setStatus(chatStatus, err.message, true);
-  }
-});
-
-// ─── Debug (temporário) ─────────────────────────────────────────────────────
-const debugType = document.getElementById("debugType");
-const debugClientId = document.getElementById("debugClientId");
-const debugLimit = document.getElementById("debugLimit");
-const debugFetchBtn = document.getElementById("debugFetchBtn");
-const debugStatus = document.getElementById("debugStatus");
-const debugOutput = document.getElementById("debugOutput");
-
-debugFetchBtn.addEventListener("click", async () => {
-  const type = debugType.value;
-  const clientId = debugClientId.value.trim();
-  const limit = debugLimit.value.trim() || "5";
-
-  if (type !== "clients" && !clientId) {
-    setStatus(debugStatus, "Client ID é obrigatório pra esse tipo.", true);
-    return;
-  }
-
-  debugOutput.textContent = "";
-  setStatus(debugStatus, "Buscando…", false);
-  try {
-    const params = new URLSearchParams({ type, limit });
-    if (clientId) params.set("clientId", clientId);
-    const data = await api(`/api/debug-raw?${params}`);
-    debugOutput.textContent = JSON.stringify(data, null, 2);
-    setStatus(debugStatus, "Ok.", false);
-  } catch (err) {
-    setStatus(debugStatus, err.message, true);
   }
 });
 

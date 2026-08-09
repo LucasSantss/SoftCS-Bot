@@ -1,11 +1,17 @@
--- Mapeamento manual: usuário SoftCS (createdById) -> @username do Telegram.
--- Preencher no painel (raiz do domínio), um registro por pessoa.
+-- Mapeamento: usuário SoftCS (createdById) -> nome/e-mail (via importação em
+-- lote de /admin.html, colando a lista de usuários) e @username do Telegram
+-- (preenchido depois, manualmente — a SoftCS não expõe isso em lugar nenhum).
 create table if not exists agent_mapping (
   softcs_user_id text primary key,
-  telegram_username text not null,
+  telegram_username text,
   display_name text,
+  email text,
   updated_at timestamptz not null default now()
 );
+
+-- Caso a tabela já existisse de uma versão anterior com telegram_username not null.
+alter table agent_mapping alter column telegram_username drop not null;
+alter table agent_mapping add column if not exists email text;
 
 -- Dedupe: evita reenviar a mesma mensagem no Telegram se a SoftCS reenviar o mesmo evento
 -- (retry de webhook por timeout, por exemplo).

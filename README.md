@@ -33,15 +33,23 @@ Testado ao vivo com OAuth2 conectado, contra `/clients/{clientId}/tickets`:
   pública só dá o ID. Não existe endpoint `/users` ou `/agents` pra resolver esse ID.
 - ❌ **Nome da coluna do Kanban** (`stage.name`) também não vem — só `stageId`.
 
+Também testei se `/clients/{clientId}/contacts` poderia resolver esses IDs — não resolve:
+comparei os IDs de `agentId`/`createdById` de tickets reais com os IDs retornados por
+`/contacts` do mesmo cliente e nenhum bate. `/contacts` são as pessoas do lado do
+**cliente** (ex: "Maria Fernanda", contato da Toka Brasil); `agentId`/`createdById` são da
+**equipe interna** da SoftCS — coleções diferentes, sem relação.
+
 Ou seja: qualquer JSON que já tenha aparecido com nome/e-mail/hash de senha embutido veio
-de um endpoint **interno** da SoftCS (sessão logada no navegador), não desse OAuth público.
-Pra contornar isso sem depender de endpoint não-oficial:
+de um endpoint **interno** da SoftCS (sessão logada no navegador — a tela de "Usuários" em
+Configurações), não da API pública. Pra contornar isso:
 
 - **Nome da coluna**: clique no nome da coluna no Kanban (aba Tickets) pra renomear uma vez
   — fica salvo em `stage_labels` e usado dali em diante.
-- **Nome de quem criou**: não tem solução automática. O jeito é abrir o mesmo ticket (pelo
-  título, que aparece nos dois lugares) no Kanban de verdade da SoftCS, ver o nome ali, e
-  digitar o `@` correspondente na aba Agentes — só precisa fazer isso uma vez por pessoa.
+- **Nome/e-mail de quem criou**: cole o payload da tela "Usuários" da SoftCS (JSON, ou o
+  texto cru copiado do DevTools) no card "Importar usuários da SoftCS" da aba Agentes —
+  importa nome e e-mail de todo mundo de uma vez, indexado pelo ID. O `@` do Telegram
+  continua manual (só existe na sua cabeça, não em nenhuma API), mas agora pelo menos você
+  já vê o nome/e-mail de cada ID sem precisar caçar ticket por ticket.
 
 ## Painel: Tickets, Agentes, Chats
 
@@ -65,10 +73,15 @@ nome da coluna pra renomear.
 > do mesmo lote — sem perder o progresso já feito.
 
 **Aba Agentes**:
-- **Novo agente**: cadastro manual (ID + `@` + nome opcional).
+- **Importar usuários da SoftCS**: cola o payload da tela "Usuários" (Configurações >
+  Usuários no painel da SoftCS) e importa nome + e-mail de todo mundo de uma vez
+  (`api/import-agents.js`). Não mexe no `@` de quem já tinha um cadastrado.
+- **Novo agente / preencher @**: cadastro manual — ID sempre obrigatório, `@`/nome/e-mail
+  opcionais (dá pra usar só pra preencher o `@` de alguém que já foi importado).
 - **Criadores encontrados**: lista deduplicada dos criadores vistos na última busca feita
   na aba Tickets — cada um mostra se já tem `@` cadastrado (badge verde) ou não (campo pra
-  preencher). O botão **Salvar todos preenchidos** salva de uma vez todo mundo que você
+  preencher), usando o nome/e-mail importados como fallback quando o próprio ticket não
+  trouxer nome. O botão **Salvar todos preenchidos** salva de uma vez todo mundo que você
   já preencheu, sem precisar clicar linha por linha.
 
 **Aba Chats**: chat_id de cada grupo/canal, com o botão **Testar** mandando uma mensagem
@@ -174,7 +187,8 @@ api/
   discover-tickets.js         escaneia um lote de clientes (?offset=) e devolve os tickets
                               abertos deles + se há mais lote (hasMoreClients/nextOffset)
   stage-labels.js               nomes das colunas do Kanban (cadastrados manualmente)
-  telegram-test.js                manda uma mensagem de teste pra um chat_id (botão "Testar")
+  import-agents.js                importa nome/e-mail em lote (JSON ou stream RSC colado)
+  telegram-test.js                  manda uma mensagem de teste pra um chat_id (botão "Testar")
 lib/
   db.js                 conexão com o Neon
   agents.js              busca o @username cadastrado pro criador do ticket
@@ -183,7 +197,8 @@ lib/
   softcs-api.js             token OAuth (refresh automático) + chamadas à API da SoftCS
                             (getClients, getClientTickets)
 sql/
-  schema.sql            tabelas: agent_mapping, processed_webhook_events, telegram_chats,
+  schema.sql            tabelas: agent_mapping (softcs_user_id, telegram_username opcional,
+                         display_name, email), processed_webhook_events, telegram_chats,
                          settings, softcs_oauth_tokens, oauth_pkce_state, stage_labels
 dev-server.js          servidor local leve pra `npm run dev` (sem precisar de vercel CLI)
 ```

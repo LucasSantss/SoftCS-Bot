@@ -31,10 +31,6 @@
           <span class="nav-dot"></span>
           Chats
         </button>
-        <button class="nav-item" data-tab="debug">
-          <span class="nav-dot"></span>
-          Debug
-        </button>
       </nav>
       <div class="sidebar-footer">
         <div class="status-widget">
@@ -100,10 +96,25 @@
         <!-- ─── Agentes ─── -->
         <div class="tab-panel" id="tab-agents">
           <div class="card">
-            <h3>Novo agente</h3>
+            <h3>Importar usuários da SoftCS</h3>
+            <p class="muted">
+              Cole aqui o JSON (ou o texto colado direto do DevTools, com as linhas
+              <code>N:{ ... }</code>) da tela de Usuários da SoftCS — importa nome e e-mail de
+              todo mundo de uma vez. O `@` do Telegram continua sendo preenchido à mão depois,
+              por pessoa, já que isso não vem em nenhum lugar da SoftCS.
+            </p>
+            <textarea id="importAgentsInput" rows="6" placeholder="Cole o payload aqui…"></textarea>
+            <div class="form-actions">
+              <button type="button" id="importAgentsBtn" class="btn btn-primary">Importar</button>
+            </div>
+            <p id="importAgentsStatus" class="status-line"></p>
+          </div>
+
+          <div class="card">
+            <h3>Novo agente / preencher @</h3>
             <form id="agentForm" class="create-row">
               <input name="softcs_user_id" placeholder="ID do usuário na SoftCS" required />
-              <input name="telegram_username" placeholder="@username no Telegram" required />
+              <input name="telegram_username" placeholder="@username no Telegram" />
               <input name="display_name" placeholder="nome (opcional)" />
               <button type="submit" class="btn btn-primary">+ Adicionar</button>
             </form>
@@ -148,39 +159,6 @@
           <div class="empty-state" id="chatEmpty" style="display:none">
             <p>Nenhum chat cadastrado ainda.</p>
             <p class="muted">Adicione o bot ao grupo e cole o chat_id acima para começar a receber notificações.</p>
-          </div>
-        </div>
-
-        <!-- ─── Debug (temporário) ─── -->
-        <div class="tab-panel" id="tab-debug">
-          <div class="card">
-            <h3>Ver payload cru da SoftCS</h3>
-            <p class="muted">
-              Temporário, só pra explorar o que cada endpoint devolve de verdade.
-            </p>
-            <div class="form-grid">
-              <div>
-                <label class="field-label">Tipo</label>
-                <select id="debugType" name="debugType">
-                  <option value="clients">clients (lista)</option>
-                  <option value="tickets">clients/{id}/tickets</option>
-                  <option value="contacts">clients/{id}/contacts</option>
-                </select>
-              </div>
-              <div>
-                <label class="field-label">Client ID (se aplicável)</label>
-                <input type="text" id="debugClientId" placeholder="ex: 69cd87591052e24bec051267" />
-              </div>
-              <div>
-                <label class="field-label">Limit</label>
-                <input type="text" id="debugLimit" value="5" />
-              </div>
-            </div>
-            <div class="form-actions">
-              <button type="button" id="debugFetchBtn" class="btn btn-primary">Buscar payload</button>
-            </div>
-            <p id="debugStatus" class="status-line"></p>
-            <pre id="debugOutput" class="debug-output"></pre>
           </div>
         </div>
 
