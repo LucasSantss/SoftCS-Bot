@@ -33,7 +33,7 @@ export default async function handler(req, res) {
     // em ~1h e é preciso clicar em Conectar toda vez). Precisa estar habilitado em
     // Identidade > "Continuar conectada mesmo após sair" na aplicação da SoftCS,
     // senão volta o invalid_scope.
-    scope: 'tickets:read clients:read offline_access',
+    scope: 'tickets:read clients:read contacts:read offline_access',
     state,
     code_challenge: challenge,
     code_challenge_method: 'S256',
