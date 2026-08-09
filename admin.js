@@ -28,6 +28,7 @@ const TAB_META = {
   tickets: { title: "Tickets", sub: "Consulta os tickets da SoftCS, agrupados pelas colunas do Kanban" },
   agents: { title: "Agentes", sub: "Mapeamento entre usuário SoftCS e @username no Telegram" },
   chats: { title: "Chats do Telegram", sub: "Grupos e canais que recebem a notificação de cada ticket" },
+  debug: { title: "Debug", sub: "Payload cru da API da SoftCS — temporário" },
 };
 
 navItems.forEach((item) => {
@@ -514,6 +515,37 @@ chatForm.addEventListener("submit", async (event) => {
     await loadChats();
   } catch (err) {
     setStatus(chatStatus, err.message, true);
+  }
+});
+
+// ─── Debug (temporário) ─────────────────────────────────────────────────────
+const debugType = document.getElementById("debugType");
+const debugClientId = document.getElementById("debugClientId");
+const debugLimit = document.getElementById("debugLimit");
+const debugFetchBtn = document.getElementById("debugFetchBtn");
+const debugStatus = document.getElementById("debugStatus");
+const debugOutput = document.getElementById("debugOutput");
+
+debugFetchBtn.addEventListener("click", async () => {
+  const type = debugType.value;
+  const clientId = debugClientId.value.trim();
+  const limit = debugLimit.value.trim() || "5";
+
+  if (type !== "clients" && !clientId) {
+    setStatus(debugStatus, "Client ID é obrigatório pra esse tipo.", true);
+    return;
+  }
+
+  debugOutput.textContent = "";
+  setStatus(debugStatus, "Buscando…", false);
+  try {
+    const params = new URLSearchParams({ type, limit });
+    if (clientId) params.set("clientId", clientId);
+    const data = await api(`/api/debug-raw?${params}`);
+    debugOutput.textContent = JSON.stringify(data, null, 2);
+    setStatus(debugStatus, "Ok.", false);
+  } catch (err) {
+    setStatus(debugStatus, err.message, true);
   }
 });
 
