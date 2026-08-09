@@ -1,0 +1,11 @@
+{
+  "rewrites": [
+    { "source": "/api/auth-start", "destination": "/api/auth?action=start" },
+    { "source": "/api/auth-callback", "destination": "/api/auth?action=callback" },
+    { "source": "/api/auth-logout", "destination": "/api/auth?action=logout" },
+    { "source": "/api/me", "destination": "/api/auth?action=me" },
+    { "source": "/api/users", "destination": "/api/auth?action=users" },
+    { "source": "/api/oauth-start", "destination": "/api/softcs-oauth?action=start" },
+    { "source": "/api/oauth-callback", "destination": "/api/softcs-oauth?action=callback" }
+  ]
+}

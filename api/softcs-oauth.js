@@ -1,13 +1,64 @@
+import crypto from 'node:crypto';
 import sql from '../lib/db.js';
 import { getSetting } from '../lib/settings.js';
 import { getSessionUser } from '../lib/auth.js';
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 
+function base64url(buffer) {
+  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// Passo 1 do fluxo OAuth (Authorization Code + PKCE), acionado pelo botão
+// "Conectar" na aba Agentes. Usado só pra alimentar a busca de tickets em
+// /api/discover-tickets — o webhook não depende disso.
+async function handleStart(req, res) {
+  const user = await getSessionUser(req);
+  if (!user) {
+    res.writeHead(302, { Location: '/login.html' });
+    res.end();
+    return;
+  }
+
+  const clientId = await getSetting('softcs_client_id');
+  const redirectUri = await getSetting('softcs_redirect_uri');
+
+  const missing = [!clientId && 'Client ID', !redirectUri && 'Redirect URI'].filter(Boolean);
+  if (missing.length > 0) {
+    res.status(400).send(`Configure antes de conectar: ${missing.join(', ')}.`);
+    return;
+  }
+
+  const verifier = base64url(crypto.randomBytes(32));
+  const challenge = base64url(crypto.createHash('sha256').update(verifier).digest());
+  const state = base64url(crypto.randomBytes(16));
+
+  await sql`insert into oauth_pkce_state (state, code_verifier) values (${state}, ${verifier})`;
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    // offline_access é o que garante o refresh_token (senão o access_token expira
+    // em ~1h e é preciso clicar em Conectar toda vez). Precisa estar habilitado em
+    // Identidade > "Continuar conectada mesmo após sair" na aplicação da SoftCS,
+    // senão volta o invalid_scope.
+    scope: 'tickets:read clients:read contacts:read offline_access',
+    state,
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+  });
+
+  res.writeHead(302, {
+    Location: `https://admin.softcs.com.br/api/public/v1/oauth/authorize?${params}`,
+  });
+  res.end();
+}
+
 // Passo 2 do fluxo OAuth: recebe o `code` da SoftCS, busca o code_verifier
-// guardado em /api/oauth-start (pelo `state`), troca por access/refresh token e
+// guardado no passo 1 (pelo `state`), troca por access/refresh token e
 // grava em softcs_oauth_tokens.
-export default async function handler(req, res) {
+async function handleCallback(req, res) {
   const user = await getSessionUser(req);
   if (!user) {
     res.writeHead(302, { Location: '/login.html' });
@@ -92,4 +143,14 @@ export default async function handler(req, res) {
   `;
 
   res.status(200).send('Conectado — pode fechar esta aba e voltar pro painel.');
+}
+
+// Um arquivo só cobrindo /api/oauth-start e /api/oauth-callback (SoftCS) —
+// mesma razão do api/auth.js: ficar dentro do limite de 12 Serverless
+// Functions do plano Hobby da Vercel. vercel.json reescreve as duas URLs pra
+// cá com ?action=..., sem mudar nada externamente (a redirect URI cadastrada
+// na aplicação OAuth2 da SoftCS continua /api/oauth-callback).
+export default async function handler(req, res) {
+  if (req.query.action === 'callback') return handleCallback(req, res);
+  return handleStart(req, res);
 }

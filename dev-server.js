@@ -8,22 +8,26 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 
+// Alguns caminhos aqui viram a mesma function em produção (vercel.json faz o
+// rewrite pra /api/auth?action=... e /api/softcs-oauth?action=...) — o
+// segundo elemento simula isso localmente, injetando `action` em req.query
+// antes de chamar o handler, sem mudar nenhuma URL externa.
 const routes = {
-  '/api/webhook': () => import('./api/webhook.js'),
-  '/api/chats': () => import('./api/chats.js'),
-  '/api/agents': () => import('./api/agents.js'),
-  '/api/settings': () => import('./api/settings.js'),
-  '/api/oauth-start': () => import('./api/oauth-start.js'),
-  '/api/oauth-callback': () => import('./api/oauth-callback.js'),
-  '/api/discover-tickets': () => import('./api/discover-tickets.js'),
-  '/api/telegram-test': () => import('./api/telegram-test.js'),
-  '/api/stage-labels': () => import('./api/stage-labels.js'),
-  '/api/import-agents': () => import('./api/import-agents.js'),
-  '/api/auth-start': () => import('./api/auth-start.js'),
-  '/api/auth-callback': () => import('./api/auth-callback.js'),
-  '/api/auth-logout': () => import('./api/auth-logout.js'),
-  '/api/me': () => import('./api/me.js'),
-  '/api/users': () => import('./api/users.js'),
+  '/api/webhook': ['./api/webhook.js'],
+  '/api/chats': ['./api/chats.js'],
+  '/api/agents': ['./api/agents.js'],
+  '/api/settings': ['./api/settings.js'],
+  '/api/discover-tickets': ['./api/discover-tickets.js'],
+  '/api/telegram-test': ['./api/telegram-test.js'],
+  '/api/stage-labels': ['./api/stage-labels.js'],
+  '/api/import-agents': ['./api/import-agents.js'],
+  '/api/oauth-start': ['./api/softcs-oauth.js', 'start'],
+  '/api/oauth-callback': ['./api/softcs-oauth.js', 'callback'],
+  '/api/auth-start': ['./api/auth.js', 'start'],
+  '/api/auth-callback': ['./api/auth.js', 'callback'],
+  '/api/auth-logout': ['./api/auth.js', 'logout'],
+  '/api/me': ['./api/auth.js', 'me'],
+  '/api/users': ['./api/auth.js', 'users'],
 };
 
 function augmentResponse(res) {
@@ -71,12 +75,14 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   augmentResponse(res);
 
-  const loadRoute = routes[url.pathname];
-  if (loadRoute) {
+  const route = routes[url.pathname];
+  if (route) {
+    const [modulePath, action] = route;
     req.query = Object.fromEntries(url.searchParams);
+    if (action) req.query.action = action;
     req.body = await readJsonBody(req);
     try {
-      const mod = await loadRoute();
+      const mod = await import(modulePath);
       await mod.default(req, res);
     } catch (err) {
       console.error(err);

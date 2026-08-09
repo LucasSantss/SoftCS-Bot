@@ -237,22 +237,28 @@ api/
                         atualização) — resolve @menção, nome do estágio e link do ticket,
                         e manda pro(s) chat(s) onde o criador é membro (chat_agents).
                         Não exige sessão — é chamado pela SoftCS, não por um navegador logado.
-  auth-start.js           passo 1 do login: redireciona pro consentimento do Google
-  auth-callback.js         passo 2 do login: troca code por token, checa domínio +
-                           allowlist, cria a sessão
-  auth-logout.js            apaga a sessão e manda pro login
-  me.js                      quem está logado (e-mail + role), usado pelo admin.js
-  users.js                    CRUD da allowlist de acesso (allowed_users) — só o master
+  auth.js                 login: start (redireciona pro Google), callback (troca code por
+                          token, checa domínio + allowlist, cria sessão), logout, me (quem
+                          está logado) e users (CRUD da allowlist, só master) — um arquivo
+                          só cobrindo /api/auth-start, /api/auth-callback, /api/auth-logout,
+                          /api/me e /api/users via rewrite (ver vercel.json e nota abaixo)
   agents.js              CRUD do mapeamento agente SoftCS -> @telegram
   chats.js                CRUD dos chats do Telegram + membros (chat_agents)
   settings.js              credenciais OAuth da SoftCS (tabela settings)
-  oauth-start.js            passo 1 da conexão OAuth da SoftCS (botão "Conectar")
-  oauth-callback.js          passo 2 da conexão OAuth da SoftCS
+  softcs-oauth.js            conexão OAuth2 da SoftCS: start (botão "Conectar") e callback —
+                            um arquivo só cobrindo /api/oauth-start e /api/oauth-callback
+                            via rewrite, mesma razão do auth.js
   discover-tickets.js         escaneia um lote de clientes (?offset=) e devolve os tickets
                               abertos deles + se há mais lote (hasMoreClients/nextOffset)
   stage-labels.js               nomes das colunas do Kanban (cadastrados manualmente)
   import-agents.js                importa nome/e-mail em lote (JSON ou stream RSC colado)
   telegram-test.js                  manda uma mensagem de teste pra um chat_id (botão "Testar")
+vercel.json            reescreve /api/auth-start, /api/auth-callback, /api/auth-logout,
+                       /api/me, /api/users, /api/oauth-start e /api/oauth-callback pros
+                       arquivos consolidados acima (com ?action=...) — as URLs externas não
+                       mudam, só a implementação por trás. Existe porque o plano Hobby da
+                       Vercel limita a 12 Serverless Functions por deployment, e um arquivo
+                       por rota estourava isso (chegou a 15).
 lib/
   db.js                 conexão com o Neon
   auth.js                 sessão/cookie, checagem de domínio @chatbotmaker.io + allowlist,
