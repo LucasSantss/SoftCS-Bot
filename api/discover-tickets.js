@@ -1,5 +1,6 @@
 import sql from '../lib/db.js';
 import { getValidAccessToken, getClients, getClientTickets } from '../lib/softcs-api.js';
+import { requireSession } from '../lib/auth.js';
 
 // A SoftCS não tem um "listar tickets de todos os clientes" — o endpoint é
 // sempre /clients/{clientId}/tickets. Contas grandes têm milhares de
@@ -61,6 +62,9 @@ async function mapWithConcurrency(items, limit, fn) {
 }
 
 export default async function handler(req, res) {
+  const user = await requireSession(req, res);
+  if (!user) return;
+
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'method not allowed' });
     return;

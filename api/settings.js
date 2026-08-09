@@ -1,9 +1,13 @@
 import sql from '../lib/db.js';
 import { getSettings, setSettings } from '../lib/settings.js';
+import { requireSession } from '../lib/auth.js';
 
 const EDITABLE_KEYS = ['softcs_client_id', 'softcs_client_secret', 'softcs_redirect_uri'];
 
 export default async function handler(req, res) {
+  const user = await requireSession(req, res);
+  if (!user) return;
+
   if (req.method === 'GET') {
     const settings = await getSettings();
     const tokenRows = await sql`select 1 from softcs_oauth_tokens where id = 1`;

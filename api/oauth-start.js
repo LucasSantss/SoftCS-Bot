@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import sql from '../lib/db.js';
 import { getSetting } from '../lib/settings.js';
+import { getSessionUser } from '../lib/auth.js';
 
 function base64url(buffer) {
   return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -10,6 +11,13 @@ function base64url(buffer) {
 // "Conectar" na aba Agentes. Usado só pra alimentar a busca de tickets em
 // /api/discover-tickets — o webhook não depende disso.
 export default async function handler(req, res) {
+  const user = await getSessionUser(req);
+  if (!user) {
+    res.writeHead(302, { Location: '/login.html' });
+    res.end();
+    return;
+  }
+
   const clientId = await getSetting('softcs_client_id');
   const redirectUri = await getSetting('softcs_redirect_uri');
 

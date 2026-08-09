@@ -13,6 +13,12 @@ async function api(path, options = {}) {
       ...(options.headers || {}),
     },
   });
+  if (res.status === 401) {
+    // Sessão inválida/expirada — o middleware de página só cobre `/`, então
+    // isso também pega o caso de voltar pra uma aba antiga já deslogada.
+    window.location.href = "/login.html";
+    return new Promise(() => {}); // nunca resolve — a navegação já está indo embora
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(data.error || `HTTP ${res.status}`);
@@ -35,6 +41,7 @@ const TAB_META = {
   tickets: { title: "Tickets", sub: "Consulta os tickets da SoftCS, agrupados pelas colunas do Kanban" },
   agents: { title: "Agentes", sub: "Mapeamento entre usuário SoftCS e @username no Telegram" },
   chats: { title: "Chats do Telegram", sub: "Grupos e canais que recebem a notificação de cada ticket" },
+  access: { title: "Acesso", sub: "Quem pode entrar no painel (@chatbotmaker.io)" },
 };
 
 navItems.forEach((item) => {
@@ -669,7 +676,92 @@ chatForm.addEventListener("submit", async (event) => {
   }
 });
 
+// ─── Acesso (só master vê essa aba) ────────────────────────────────────────
+const accessForm = document.getElementById("accessForm");
+const accessStatus = document.getElementById("accessStatus");
+const accessList = document.getElementById("accessList");
+const accessNavItem = document.getElementById("accessNavItem");
+const userEmail = document.getElementById("userEmail");
+
+async function loadMe() {
+  try {
+    const me = await api("/api/me");
+    userEmail.textContent = me.email;
+    if (me.role === "master") {
+      accessNavItem.style.display = "";
+      await loadAccessList();
+    }
+  } catch (err) {
+    // requireSession/api() já redireciona pro login em 401 — qualquer outro
+    // erro aqui não deve travar o resto do painel.
+  }
+}
+
+async function loadAccessList() {
+  try {
+    const rows = await api("/api/users");
+    accessList.innerHTML = "";
+    for (const row of rows) renderAccessRow(row);
+  } catch (err) {
+    setStatus(accessStatus, err.message, true);
+  }
+}
+
+function renderAccessRow(row) {
+  const item = document.createElement("div");
+  item.className = "list-item";
+  item.innerHTML = `
+    <div class="list-item-main">
+      <span class="list-item-title"></span>
+      <span class="list-item-sub"></span>
+    </div>
+    <div class="list-item-actions"></div>
+  `;
+  item.querySelector(".list-item-title").textContent = row.display_name || row.email;
+  item.querySelector(".list-item-sub").textContent = row.email;
+
+  const actions = item.querySelector(".list-item-actions");
+  if (row.master) {
+    const badge = document.createElement("span");
+    badge.className = "badge on";
+    badge.textContent = "master";
+    actions.appendChild(badge);
+  } else {
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "icon-btn danger-hover";
+    deleteBtn.title = "Remover acesso";
+    deleteBtn.textContent = "🗑";
+    deleteBtn.addEventListener("click", async () => {
+      if (!confirm(`Remover acesso de "${row.email}"?`)) return;
+      try {
+        await api(`/api/users?email=${encodeURIComponent(row.email)}`, { method: "DELETE" });
+        await loadAccessList();
+        setStatus(accessStatus, "Removido.", false);
+      } catch (err) {
+        setStatus(accessStatus, err.message, true);
+      }
+    });
+    actions.appendChild(deleteBtn);
+  }
+
+  accessList.appendChild(item);
+}
+
+accessForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(accessForm));
+  try {
+    await api("/api/users", { method: "POST", body: JSON.stringify(data) });
+    accessForm.reset();
+    setStatus(accessStatus, "Liberado.", false);
+    await loadAccessList();
+  } catch (err) {
+    setStatus(accessStatus, err.message, true);
+  }
+});
+
 async function boot() {
+  await loadMe();
   await loadAgents(); // precisa terminar antes: loadChats popula o seletor de membros com agentInfoById
   loadChats();
   loadConnection();

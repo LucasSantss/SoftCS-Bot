@@ -1,5 +1,6 @@
 import sql from '../lib/db.js';
 import { getSetting } from '../lib/settings.js';
+import { getSessionUser } from '../lib/auth.js';
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 
@@ -7,6 +8,13 @@ const STATE_TTL_MS = 10 * 60 * 1000;
 // guardado em /api/oauth-start (pelo `state`), troca por access/refresh token e
 // grava em softcs_oauth_tokens.
 export default async function handler(req, res) {
+  const user = await getSessionUser(req);
+  if (!user) {
+    res.writeHead(302, { Location: '/login.html' });
+    res.end();
+    return;
+  }
+
   const { code, state, error } = req.query;
 
   if (error) {

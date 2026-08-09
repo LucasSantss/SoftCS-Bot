@@ -72,3 +72,35 @@ create table if not exists chat_agents (
   softcs_user_id text not null references agent_mapping (softcs_user_id) on delete cascade,
   primary key (chat_id, softcs_user_id)
 );
+
+-- Login do painel: Google OAuth restrito a e-mails @chatbotmaker.io e só quem
+-- estiver nesta lista (ver lib/auth.js). lucasrodrigues@chatbotmaker.io é o
+-- master fixo — o código trata esse e-mail como master mesmo se a linha for
+-- removida por engano, mas ele fica registrado aqui também por clareza.
+create table if not exists allowed_users (
+  email text primary key,
+  display_name text,
+  added_by text,
+  created_at timestamptz not null default now()
+);
+
+insert into allowed_users (email, display_name)
+values ('lucasrodrigues@chatbotmaker.io', 'Lucas Rodrigues (master)')
+on conflict (email) do nothing;
+
+-- Sessões do painel (cookie opaco -> linha). Sem JWT/assinatura: valida
+-- sempre com uma consulta ao banco, como o resto do projeto já faz com
+-- oauth_pkce_state.
+create table if not exists sessions (
+  token text primary key,
+  email text not null,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null
+);
+
+-- Estado anti-CSRF do fluxo de login com o Google (mesmo padrão do
+-- oauth_pkce_state usado no OAuth da SoftCS).
+create table if not exists google_oauth_state (
+  state text primary key,
+  created_at timestamptz not null default now()
+);

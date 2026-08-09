@@ -1,4 +1,5 @@
 import sql from '../lib/db.js';
+import { requireSession } from '../lib/auth.js';
 
 // Alguns painéis internos da SoftCS entregam texto em UTF-8 decodificado como
 // Latin-1 na hora de copiar (ex: "Ã§Ã£" em vez de "ção") — reverte isso.
@@ -54,6 +55,9 @@ function extractUsers(rawText) {
 }
 
 export default async function handler(req, res) {
+  const user = await requireSession(req, res);
+  if (!user) return;
+
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'method not allowed' });
     return;

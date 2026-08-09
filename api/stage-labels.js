@@ -1,8 +1,12 @@
 import sql from '../lib/db.js';
+import { requireSession } from '../lib/auth.js';
 
 // Nomes das colunas do Kanban, cadastrados manualmente (a API pública da
 // SoftCS não devolve o nome do estágio, só o stageId).
 export default async function handler(req, res) {
+  const user = await requireSession(req, res);
+  if (!user) return;
+
   if (req.method === 'GET') {
     const rows = await sql`select stage_id, label from stage_labels`;
     res.status(200).json(Object.fromEntries(rows.map((r) => [r.stage_id, r.label])));

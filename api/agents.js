@@ -1,6 +1,10 @@
 import sql from '../lib/db.js';
+import { requireSession } from '../lib/auth.js';
 
 export default async function handler(req, res) {
+  const user = await requireSession(req, res);
+  if (!user) return;
+
   if (req.method === 'GET') {
     const rows = await sql`
       select softcs_user_id, telegram_username, display_name, email, updated_at

@@ -19,6 +19,11 @@ const routes = {
   '/api/telegram-test': () => import('./api/telegram-test.js'),
   '/api/stage-labels': () => import('./api/stage-labels.js'),
   '/api/import-agents': () => import('./api/import-agents.js'),
+  '/api/auth-start': () => import('./api/auth-start.js'),
+  '/api/auth-callback': () => import('./api/auth-callback.js'),
+  '/api/auth-logout': () => import('./api/auth-logout.js'),
+  '/api/me': () => import('./api/me.js'),
+  '/api/users': () => import('./api/users.js'),
 };
 
 function augmentResponse(res) {
@@ -77,6 +82,13 @@ const server = http.createServer(async (req, res) => {
       console.error(err);
       res.status(500).json({ error: 'internal error', message: err.message });
     }
+    return;
+  }
+
+  // Reflete o middleware.js de produção: sem cookie de sessão, `/` manda pro login.
+  if (url.pathname === '/' && !/(?:^|;\s*)softcs_session=/.test(req.headers.cookie || '')) {
+    res.writeHead(302, { Location: '/login.html' });
+    res.end();
     return;
   }
 

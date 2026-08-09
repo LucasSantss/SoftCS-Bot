@@ -11,14 +11,20 @@ webhook em si (`api/webhook.js`) não usa a API autenticada da SoftCS — só re
 monta a mensagem com o que vier nele. A API autenticada (OAuth2) é usada só pela aba
 **Tickets**, pra consultar os tickets e ajudar a montar o mapeamento de agentes.
 
-Só existem duas variáveis de ambiente: `DATABASE_URL` e `TELEGRAM_BOT_TOKEN`. Tudo o resto
-(credenciais OAuth2 da SoftCS, mapeamento de agentes, chats do Telegram, nomes das colunas
-do Kanban) é cadastrado depois do deploy direto na URL do domínio (`index.html`), e fica
-salvo no Neon.
+Só existem quatro variáveis de ambiente: `DATABASE_URL`, `TELEGRAM_BOT_TOKEN`,
+`GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`. Tudo o resto (credenciais OAuth2 da SoftCS,
+mapeamento de agentes, chats do Telegram, nomes das colunas do Kanban, lista de e-mails com
+acesso ao painel) é cadastrado depois do deploy direto na URL do domínio (`index.html`), e
+fica salvo no Neon.
 
-> ⚠️ **O painel não tem senha nenhuma** — foi uma escolha deliberada (uso pessoal, sem
-> fricção de login). Qualquer pessoa com a URL do domínio consegue ver e editar tudo,
-> incluindo o `client_secret` da SoftCS. Não divulgue essa URL.
+**O painel exige login com Google, restrito a e-mails `@chatbotmaker.io` e só quem estiver
+liberado.** `lucasrodrigues@chatbotmaker.io` é o master fixo (não pode ser removido, único
+que vê a aba **Acesso**) e é quem decide, dali, quais outros e-mails `@chatbotmaker.io`
+podem entrar — ver [lib/auth.js](lib/auth.js) e a seção de Setup abaixo. Sem sessão válida,
+`/` redireciona pra `/login.html` (via [middleware.js](middleware.js) e, como reforço, o
+próprio `admin.js` ao levar um 401 de qualquer chamada); a validação de verdade — sessão
+existe no banco e o e-mail continua na allowlist — acontece em cada endpoint de `/api/*`
+(exceto `/api/webhook`, chamado pela SoftCS, não por um navegador logado).
 
 > ⚠️ **Pendência conhecida**: o parser em [api/webhook.js](api/webhook.js) foi escrito
 > com um formato de payload provisório (`{ event, eventId, data: { title, priority,
@@ -58,7 +64,7 @@ Configurações), não da API pública. Pra contornar isso:
   continua manual (só existe na sua cabeça, não em nenhuma API), mas agora pelo menos você
   já vê o nome/e-mail de cada ID sem precisar caçar ticket por ticket.
 
-## Painel: Tickets, Agentes, Chats
+## Painel: Tickets, Agentes, Chats, Acesso
 
 **Aba Tickets**: conecta a aplicação OAuth2 (Client ID/Secret/Redirect URI) e um único
 botão, **"Buscar todos os tickets abertos"**, traz os tickets abertos (`closedAt` nulo) de
@@ -112,6 +118,11 @@ criador, a notificação cai pra todos os chats ativos.
 > `api/discover-tickets.js` lida com os dois formatos. `limit` máximo é 200; os tickets
 > vêm ordenados por `sortBy=kanbanPosition` (o mesmo critério do board visual).
 
+**Aba Acesso** (só aparece pra `lucasrodrigues@chatbotmaker.io`, o master): lista de
+e-mails `@chatbotmaker.io` liberados a entrar no painel (`allowed_users`), com botão pra
+liberar um novo e remover quem já tinha acesso. Remover um e-mail também derruba na hora
+qualquer sessão ativa dele (`sessions`), não só bloqueia logins futuros.
+
 ## Setup
 
 ### 1. Banco (Neon)
@@ -121,10 +132,12 @@ o conteúdo de [sql/schema.sql](sql/schema.sql) (SQL Editor do Neon ou `psql`).
 
 ### 2. Variáveis de ambiente
 
-Só estas duas, tanto no `.env` local quanto no painel do projeto na Vercel:
+Só estas quatro, tanto no `.env` local quanto no painel do projeto na Vercel:
 
 - `DATABASE_URL` — connection string do Neon
 - `TELEGRAM_BOT_TOKEN` — token do bot, criado com [@BotFather](https://t.me/BotFather)
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — credenciais OAuth2 do Google pro login do
+  painel (ver passo 4)
 
 ### 3. Deploy
 
@@ -133,10 +146,27 @@ npm install
 npx vercel        # ou: conectar o repo pela dashboard da Vercel
 ```
 
-### 4. Conectar a SoftCS e cadastrar agentes/chats
+### 4. Login com Google (obrigatório antes de usar o painel)
 
-Acesse `https://SEU-DOMINIO.vercel.app/` — o painel é a própria raiz do domínio
-(`index.html`), não precisa de nenhum caminho extra.
+1. No [Google Cloud Console](https://console.cloud.google.com/apis/credentials), crie uma
+   credencial OAuth2 do tipo "Aplicativo da Web".
+2. Em "Origens JavaScript autorizadas", adicione `https://SEU-DOMINIO.vercel.app`.
+3. Em "URIs de redirecionamento autorizados", adicione
+   `https://SEU-DOMINIO.vercel.app/api/auth-callback`.
+4. Copie o Client ID e o Client Secret gerados e cadastre como `GOOGLE_CLIENT_ID` /
+   `GOOGLE_CLIENT_SECRET` nas variáveis de ambiente da Vercel (e faça um redeploy, já que
+   são variáveis de ambiente — mudam só no próximo build/deploy).
+
+`lucasrodrigues@chatbotmaker.io` já entra liberado (linha seedada em
+[sql/schema.sql](sql/schema.sql), e o `MASTER_EMAIL` em `lib/auth.js` também garante isso
+mesmo que a linha suma do banco). Pra liberar qualquer outro e-mail `@chatbotmaker.io`,
+entre com essa conta master e cadastre na aba **Acesso** — só aparece pra ela.
+
+### 5. Conectar a SoftCS e cadastrar agentes/chats
+
+Acesse `https://SEU-DOMINIO.vercel.app/` e entre com uma conta Google `@chatbotmaker.io`
+liberada — o painel é a própria raiz do domínio (`index.html`), não precisa de nenhum
+caminho extra.
 
 Na aba **Tickets**:
 
@@ -165,7 +195,7 @@ especificamente ali quando um desses agentes for o criador.
 > bot posta. Se a pessoa não estiver no grupo, o `@username` aparece como texto/link
 > mas ninguém é notificado.
 
-### 5. Cadastrar o webhook na SoftCS
+### 6. Cadastrar o webhook na SoftCS
 
 No painel da SoftCS (tela de Webhooks), cadastre:
 
@@ -184,26 +214,40 @@ npm install
 npm run dev        # sobe em http://localhost:3000, sem precisar de `vercel login`
 ```
 
-Usa `node --env-file=.env`, então só precisa do `.env` com `DATABASE_URL` e
-`TELEGRAM_BOT_TOKEN`. Pra testar a conexão OAuth2 localmente, cadastre
+Usa `node --env-file=.env`, então só precisa do `.env` com `DATABASE_URL`,
+`TELEGRAM_BOT_TOKEN`, `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`. Pra testar o login
+localmente, adicione `http://localhost:3000` nas origens autorizadas e
+`http://localhost:3000/api/auth-callback` nos redirect URIs da credencial OAuth2 do Google
+(dá pra usar a mesma credencial de produção, só adicionando essas duas entradas a mais).
+Pra testar a conexão OAuth2 da SoftCS localmente, cadastre
 `http://localhost:3000/api/oauth-callback` como Redirect URI tanto no painel quanto na
 aplicação OAuth2 da SoftCS.
 
 ## Estrutura
 
 ```
-index.html             painel único (sem login), servido na raiz do domínio: abas Tickets, Agentes, Chats
+index.html             painel (exige login), servido na raiz do domínio: abas Tickets,
+                       Agentes, Chats, Acesso (só master)
+login.html               tela de login ("Entrar com Google"), mostra erro de domínio/allowlist
+middleware.js             Edge Middleware: sem cookie de sessão, redireciona / pro login
 admin.css               visual baseado no design system do CodeRise Hub
-admin.js                 lógica das abas (fetch nas APIs abaixo)
+admin.js                 lógica das abas (fetch nas APIs abaixo); redireciona pro login em 401
 api/
   webhook.js            endpoint que a SoftCS chama a cada evento de ticket (criação e
                         atualização) — resolve @menção, nome do estágio e link do ticket,
-                        e manda pro(s) chat(s) onde o criador é membro (chat_agents)
+                        e manda pro(s) chat(s) onde o criador é membro (chat_agents).
+                        Não exige sessão — é chamado pela SoftCS, não por um navegador logado.
+  auth-start.js           passo 1 do login: redireciona pro consentimento do Google
+  auth-callback.js         passo 2 do login: troca code por token, checa domínio +
+                           allowlist, cria a sessão
+  auth-logout.js            apaga a sessão e manda pro login
+  me.js                      quem está logado (e-mail + role), usado pelo admin.js
+  users.js                    CRUD da allowlist de acesso (allowed_users) — só o master
   agents.js              CRUD do mapeamento agente SoftCS -> @telegram
   chats.js                CRUD dos chats do Telegram + membros (chat_agents)
   settings.js              credenciais OAuth da SoftCS (tabela settings)
-  oauth-start.js            passo 1 da conexão OAuth (botão "Conectar")
-  oauth-callback.js          passo 2 da conexão OAuth
+  oauth-start.js            passo 1 da conexão OAuth da SoftCS (botão "Conectar")
+  oauth-callback.js          passo 2 da conexão OAuth da SoftCS
   discover-tickets.js         escaneia um lote de clientes (?offset=) e devolve os tickets
                               abertos deles + se há mais lote (hasMoreClients/nextOffset)
   stage-labels.js               nomes das colunas do Kanban (cadastrados manualmente)
@@ -211,6 +255,8 @@ api/
   telegram-test.js                  manda uma mensagem de teste pra um chat_id (botão "Testar")
 lib/
   db.js                 conexão com o Neon
+  auth.js                 sessão/cookie, checagem de domínio @chatbotmaker.io + allowlist,
+                          requireSession/requireMaster usados por quase todo /api/*
   agents.js              busca o @username cadastrado pro criador do ticket
   telegram.js             envio de mensagem via Bot API (um chat ou broadcast pra vários)
   settings.js              leitura/escrita da tabela settings
@@ -220,6 +266,7 @@ sql/
   schema.sql            tabelas: agent_mapping (softcs_user_id, telegram_username opcional,
                          display_name, email), processed_webhook_events, telegram_chats,
                          chat_agents (membros de cada chat), settings, softcs_oauth_tokens,
-                         oauth_pkce_state, stage_labels
+                         oauth_pkce_state, stage_labels, allowed_users (allowlist de login),
+                         sessions (login do painel), google_oauth_state
 dev-server.js          servidor local leve pra `npm run dev` (sem precisar de vercel CLI)
 ```

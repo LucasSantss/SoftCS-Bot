@@ -31,6 +31,10 @@
           <span class="nav-dot"></span>
           Chats
         </button>
+        <button class="nav-item" data-tab="access" id="accessNavItem" style="display:none">
+          <span class="nav-dot"></span>
+          Acesso
+        </button>
       </nav>
       <div class="sidebar-footer">
         <div class="status-widget">
@@ -38,6 +42,12 @@
           <div>
             <div class="status-title">Webhook ativo</div>
             <div class="status-sub">/api/webhook</div>
+          </div>
+        </div>
+        <div class="status-widget" id="userWidget" style="margin-top: 0.5rem;">
+          <div>
+            <div class="status-title" id="userEmail"></div>
+            <div class="status-sub"><a href="/api/auth-logout" style="color: inherit;">Sair</a></div>
           </div>
         </div>
       </div>
@@ -167,6 +177,25 @@
             <p>Nenhum chat cadastrado ainda.</p>
             <p class="muted">Adicione o bot ao grupo e cole o chat_id acima para começar a receber notificações.</p>
           </div>
+        </div>
+
+        <!-- ─── Acesso (só master) ─── -->
+        <div class="tab-panel" id="tab-access">
+          <div class="card">
+            <h3>Liberar acesso</h3>
+            <p class="muted">
+              Só e-mails @chatbotmaker.io cadastrados aqui conseguem entrar no painel.
+              lucasrodrigues@chatbotmaker.io é o master fixo e não pode ser removido.
+            </p>
+            <form id="accessForm" class="create-row">
+              <input name="email" type="email" placeholder="nome@chatbotmaker.io" required />
+              <input name="display_name" placeholder="nome (opcional)" />
+              <button type="submit" class="btn btn-primary">+ Liberar</button>
+            </form>
+            <p id="accessStatus" class="status-line"></p>
+          </div>
+
+          <div class="list" id="accessList"></div>
         </div>
 
       </section>
