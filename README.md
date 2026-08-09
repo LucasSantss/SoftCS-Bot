@@ -58,6 +58,12 @@ nome da coluna pra renomear.
 > precisar clicar de novo — até acabar ou você clicar em **Parar**. O board vai se
 > preenchendo lote a lote; uma varredura completa (2000+ clientes) leva alguns minutos.
 
+> A SoftCS também limita requisições por IP (visto ao vivo: 2000 requisições a cada 10
+> minutos — o erro vem como `429 rate_limit_exceeded`, com `retryAfterSeconds`). Uma
+> varredura completa de uma conta grande facilmente ultrapassa isso. Quando acontece, o
+> painel pausa sozinho pelo tempo pedido (mostra a contagem regressiva no status) e retoma
+> do mesmo lote — sem perder o progresso já feito.
+
 **Aba Agentes**:
 - **Novo agente**: cadastro manual (ID + `@` + nome opcional).
 - **Criadores encontrados**: lista deduplicada dos criadores vistos na última busca feita

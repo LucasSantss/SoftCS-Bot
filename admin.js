@@ -7,7 +7,14 @@ async function api(path, options = {}) {
     },
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.error || `HTTP ${res.status}`);
+    if (res.status === 429) {
+      err.rateLimited = true;
+      err.retryAfterSeconds = data.retryAfterSeconds || 60;
+    }
+    throw err;
+  }
   return data;
 }
 
@@ -328,9 +335,13 @@ const stopDiscoverBtn = document.getElementById("stopDiscoverBtn");
 let lastCreators = [];
 let stopRequested = false;
 
-function updateDiscoverProgress({ ticketCount, creatorCount, clientsScanned, hasNames, done }) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function updateDiscoverProgress({ ticketCount, creatorCount, clientsScanned, hasNames, done, stopped }) {
   const namesNote = hasNames === false ? " (API não retornou nome/e-mail do criador — só o ID)" : "";
-  const doneNote = done ? "Concluído." : "Buscando…";
+  const doneNote = !done ? "Buscando…" : stopped ? "Parado." : "Concluído.";
   setStatus(
     discoverStatus,
     `${doneNote} ${ticketCount} ticket(s) aberto(s) em ${clientsScanned} cliente(s) verificados, ${creatorCount} criador(es) único(s).${namesNote}`,
@@ -352,7 +363,19 @@ async function runDiscoverLoop() {
 
   try {
     while (!stopRequested) {
-      const data = await api(`/api/discover-tickets?offset=${offset}`);
+      let data;
+      try {
+        data = await api(`/api/discover-tickets?offset=${offset}`);
+      } catch (err) {
+        if (!err.rateLimited) throw err;
+        // A SoftCS limita requisições por IP a cada poucos minutos — espera o
+        // tempo pedido e tenta o mesmo lote de novo, sem perder o progresso.
+        for (let s = err.retryAfterSeconds; s > 0 && !stopRequested; s--) {
+          setStatus(discoverStatus, `Limite da SoftCS atingido — retomando em ${s}s… (${allTickets.length} ticket(s) até agora)`, true);
+          await sleep(1000);
+        }
+        continue;
+      }
 
       allTickets.push(...data.tickets);
       for (const creator of data.creators) {
@@ -382,6 +405,7 @@ async function runDiscoverLoop() {
       clientsScanned,
       hasNames,
       done: true,
+      stopped: stopRequested,
     });
   } catch (err) {
     setStatus(discoverStatus, err.message, true);

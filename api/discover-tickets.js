@@ -129,6 +129,10 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error('Erro buscando tickets na SoftCS:', error);
+    if (error.rateLimited) {
+      res.status(429).json({ error: error.message, retryAfterSeconds: error.retryAfterSeconds });
+      return;
+    }
     res.status(500).json({ error: error.message });
   }
 }
