@@ -104,3 +104,22 @@ create table if not exists google_oauth_state (
   state text primary key,
   created_at timestamptz not null default now()
 );
+
+-- Snapshot do último estágio conhecido de cada ticket aberto, usado por
+-- api/poll-tickets.js pra detectar o que mudou entre uma varredura e outra
+-- (a SoftCS não tem webhook de ticket — ver nota em api/webhook.js). Um
+-- ticket sem linha aqui é "novo" (dispara notificação de criação); um
+-- ticket cujo stage_id mudou desde a última varredura é "atualizado"
+-- (dispara notificação de movimentação). Tickets fechados simplesmente
+-- somem das varreduras (só listam tickets abertos) e a linha correspondente
+-- fica órfã — não é limpa automaticamente; se o ticket reabrir depois no
+-- mesmo estágio, a mudança não é detectada (limitação conhecida, tickets
+-- reabertos são raros o bastante pra não valer a complexidade extra agora).
+create table if not exists ticket_state (
+  ticket_id text primary key,
+  public_id text,
+  stage_id text,
+  title text,
+  created_by_id text,
+  updated_at timestamptz not null default now()
+);

@@ -18,6 +18,7 @@ const routes = {
   '/api/agents': ['./api/agents.js'],
   '/api/settings': ['./api/settings.js'],
   '/api/discover-tickets': ['./api/discover-tickets.js'],
+  '/api/poll-tickets': ['./api/poll-tickets.js'],
   '/api/telegram-test': ['./api/telegram-test.js'],
   '/api/stage-labels': ['./api/stage-labels.js'],
   '/api/import-agents': ['./api/import-agents.js'],

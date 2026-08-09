@@ -1,6 +1,16 @@
 import sql from '../lib/db.js';
 import { getValidAccessToken, getClients, getClientTickets } from '../lib/softcs-api.js';
 import { requireSession } from '../lib/auth.js';
+import {
+  CLIENT_PAGE_LIMIT,
+  TICKETS_PER_CLIENT,
+  TICKET_CONCURRENCY,
+  extractItems,
+  extractCreator,
+  extractStage,
+  extractClientName,
+  mapWithConcurrency,
+} from '../lib/ticket-scan.js';
 
 // A SoftCS não tem um "listar tickets de todos os clientes" — o endpoint é
 // sempre /clients/{clientId}/tickets. Contas grandes têm milhares de
@@ -8,59 +18,6 @@ import { requireSession } from '../lib/auth.js';
 // escaneia UM lote de clientes (`offset`/`limit` na querystring) e diz se há
 // mais — o front chama de novo sozinho, em loop, até acabar ou o usuário
 // clicar em "Parar".
-const CLIENT_PAGE_LIMIT = 200;
-const TICKETS_PER_CLIENT = 200;
-const TICKET_CONCURRENCY = 20;
-
-// A API pagina como { data: [...], pagination: { hasMore, nextOffset } } (a
-// doc menciona "items", mas o servidor real usa "data").
-function extractItems(response) {
-  if (Array.isArray(response)) return response;
-  return response.data ?? response.items ?? [];
-}
-
-function extractCreator(ticket) {
-  const creator = ticket.createdBy;
-  if (creator && typeof creator === 'object' && creator.id) {
-    return { id: creator.id, name: creator.name || null, email: creator.email || null };
-  }
-  if (ticket.createdById) {
-    return { id: ticket.createdById, name: null, email: null };
-  }
-  return null;
-}
-
-// A API pública não devolve o nome do estágio (só o stageId) — usa o rótulo
-// salvo em /api/stage-labels se existir; senão mostra um nome genérico a
-// partir do ID, pra pelo menos diferenciar as colunas até serem renomeadas.
-function extractStage(ticket, stageLabels) {
-  const stage = ticket.denormalizedStage ?? ticket.stage;
-  const id = stage?.id ?? ticket.stageId ?? 'sem-estagio';
-  const fallbackName = id === 'sem-estagio' ? 'Sem estágio' : `Coluna #${id.slice(-4)}`;
-  return {
-    id,
-    name: stageLabels[id] ?? stage?.name ?? fallbackName,
-    color: stage?.color ?? null,
-    position: typeof stage?.position === 'number' ? stage.position : 999,
-  };
-}
-
-// Roda `fn` sobre `items` com no máximo `limit` chamadas em paralelo por vez.
-async function mapWithConcurrency(items, limit, fn) {
-  const results = new Array(items.length);
-  let next = 0;
-
-  async function worker() {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await fn(items[index]);
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
-
 export default async function handler(req, res) {
   const user = await requireSession(req, res);
   if (!user) return;
@@ -111,11 +68,7 @@ export default async function handler(req, res) {
           publicId: ticket.publicId ?? null,
           title: ticket.title ?? '(sem título)',
           priority: ticket.priority ?? null,
-          clientName:
-            ticket.denormalizedMainClient?.name ??
-            ticket.mainClient?.name ??
-            clientNameById.get(ticket.mainClientId) ??
-            null,
+          clientName: extractClientName(ticket, clientNameById),
           createdAt: ticket.createdAt ?? null,
           createdBy: creator,
           stage: extractStage(ticket, stageLabels),

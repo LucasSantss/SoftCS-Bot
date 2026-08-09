@@ -1,0 +1,50 @@
+name: Poll SoftCS tickets
+
+# A SoftCS não expõe webhook de ticket (ver api/webhook.js), então quem
+# detecta ticket novo/movido é essa varredura periódica, chamando
+# /api/poll-tickets em lotes até acabar a conta inteira. Roda por aqui (não
+# como Cron Job da própria Vercel) porque o plano Hobby da Vercel só permite
+# cron 1x/dia — GitHub Actions permite a cada 15min de graça.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Varrer tickets em lotes até acabar a conta
+        env:
+          POLL_URL: https://softcs-bot.vercel.app/api/poll-tickets
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -e
+          offset=0
+          while true; do
+            http_code=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "$POLL_URL?offset=$offset")
+            echo "HTTP $http_code:"
+            cat /tmp/resp.json
+            echo
+
+            if [ "$http_code" = "429" ]; then
+              retry=$(jq -r '.retryAfterSeconds // 60' /tmp/resp.json)
+              echo "Rate limited pela SoftCS, aguardando ${retry}s..."
+              sleep "$retry"
+              continue
+            fi
+
+            if [ "$http_code" != "200" ]; then
+              echo "Erro inesperado (HTTP $http_code), abortando essa rodada."
+              exit 1
+            fi
+
+            hasMore=$(jq -r '.hasMoreClients' /tmp/resp.json)
+            if [ "$hasMore" != "true" ]; then
+              echo "Varredura completa."
+              break
+            fi
+            offset=$(jq -r '.nextOffset' /tmp/resp.json)
+          done
