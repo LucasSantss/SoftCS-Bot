@@ -20,11 +20,14 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -e
-          offset=0
+          # Sem ?offset= aqui de propósito: o servidor retoma sozinho de onde
+          # a última chamada parou (cursor salvo em `settings`), então essa
+          # execução continua o progresso mesmo se a anterior tiver morrido
+          # no meio (ex: token expirado) — não reescaneia do zero toda vez.
           while true; do
             http_code=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
               -H "Authorization: Bearer $CRON_SECRET" \
-              "$POLL_URL?offset=$offset")
+              "$POLL_URL")
             echo "HTTP $http_code:"
             cat /tmp/resp.json
             echo
@@ -37,14 +40,13 @@ jobs:
             fi
 
             if [ "$http_code" != "200" ]; then
-              echo "Erro inesperado (HTTP $http_code), abortando essa rodada."
+              echo "Erro inesperado (HTTP $http_code), abortando essa rodada — a próxima execução retoma daqui."
               exit 1
             fi
 
             hasMore=$(jq -r '.hasMoreClients' /tmp/resp.json)
             if [ "$hasMore" != "true" ]; then
-              echo "Varredura completa."
+              echo "Volta completa pela conta."
               break
             fi
-            offset=$(jq -r '.nextOffset' /tmp/resp.json)
           done

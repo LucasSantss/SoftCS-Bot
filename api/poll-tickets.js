@@ -13,6 +13,7 @@ import {
 } from '../lib/ticket-scan.js';
 
 const SEED_FLAG_KEY = 'ticket_poll_seeded';
+const CURSOR_KEY = 'ticket_poll_cursor';
 
 // Chamado pelo workflow do GitHub Actions (.github/workflows/poll-tickets.yml)
 // a cada 15min, em loop de lotes (mesmo padrão de api/discover-tickets.js —
@@ -31,6 +32,18 @@ const SEED_FLAG_KEY = 'ticket_poll_seeded';
 // marcada, a varredura só grava o snapshot, sem notificar; a flag é marcada
 // quando o último lote dessa primeira varredura termina (hasMoreClients
 // vira false), e daí em diante o polling passa a notificar normalmente.
+//
+// O offset retoma de onde a última chamada parou (salvo em `settings` como
+// `ticket_poll_cursor`), em vez de sempre começar do zero. Isso importa
+// porque, sem refresh_token, o access_token expira no meio de uma varredura
+// de conta grande — sem retomar o cursor, cada novo ciclo de 15min
+// reescaneava os mesmos primeiros clientes e nunca chegava nos de trás,
+// deixando mudanças em clientes "no fim da fila" invisíveis pra sempre. Com
+// o cursor persistido, o progresso acumula entre execuções (mesmo as que
+// falham no meio) até completar uma volta inteira pela conta, e então
+// reinicia do zero pro próximo ciclo. `?offset=` na query ainda funciona
+// como override manual pra debug, mas o uso normal (GitHub Actions) não
+// precisa mais informar isso.
 export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
   const authHeader = req.headers.authorization ?? '';
@@ -44,7 +57,10 @@ export default async function handler(req, res) {
     return;
   }
 
-  const offset = Number.parseInt(req.query?.offset, 10) || 0;
+  const offset =
+    req.query?.offset !== undefined
+      ? Number.parseInt(req.query.offset, 10) || 0
+      : Number.parseInt(await getSetting(CURSOR_KEY), 10) || 0;
 
   try {
     await getValidAccessToken();
@@ -128,6 +144,13 @@ export default async function handler(req, res) {
     }
 
     const hasMoreClients = Boolean(clientPagination?.hasMore);
+    const nextOffset = clientPagination?.nextOffset ?? offset + clients.length;
+
+    // Fim da conta: volta o cursor pro início pro próximo ciclo completo.
+    // No meio: salva onde parou, pra retomar dali (mesma execução do
+    // GitHub Actions ou, se essa falhar, a próxima).
+    await setSettings({ [CURSOR_KEY]: String(hasMoreClients ? nextOffset : 0) });
+
     if (seeding && !hasMoreClients) {
       await setSettings({ [SEED_FLAG_KEY]: 'true' });
     }
@@ -145,7 +168,7 @@ export default async function handler(req, res) {
       ticketsSeen,
       notified,
       hasMoreClients,
-      nextOffset: clientPagination?.nextOffset ?? offset + clients.length,
+      nextOffset,
     });
   } catch (error) {
     console.error('Erro no polling de tickets:', error);

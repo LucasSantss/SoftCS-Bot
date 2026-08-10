@@ -72,8 +72,16 @@ dia** — inviável pra isso.
 Cada chamada escaneia **um lote de clientes** (mesmo padrão de `api/discover-tickets.js`,
 via `lib/ticket-scan.js`, compartilhado entre os dois); o workflow do GitHub Actions encadeia
 as chamadas em loop (bash + `jq`) até `hasMoreClients` virar `false`, com o mesmo backoff de
-rate limit (`retryAfterSeconds`) que o painel já usava. Cada ticket aberto encontrado é
-comparado com a tabela `ticket_state`:
+rate limit (`retryAfterSeconds`) que o painel já usava. **O offset não é passado pelo
+workflow** — o servidor guarda sozinho onde parou (`ticket_poll_cursor` na tabela
+`settings`) e cada chamada nova continua dali, mesmo que seja de uma execução diferente do
+GitHub Actions. Isso importa porque, sem `refresh_token` (ver aviso abaixo), o
+`access_token` pode expirar no meio de uma varredura de conta grande — sem esse cursor
+persistido, cada ciclo de 15min recomeçaria do zero e nunca chegaria nos clientes "do fim da
+fila", deixando mudanças neles pra sempre invisíveis. Com o cursor, o progresso acumula
+entre execuções (mesmo as que falham no meio) até completar uma volta inteira pela conta, e
+então reinicia do zero pro próximo ciclo. `?offset=` na query ainda funciona como override
+manual pra debug. Cada ticket aberto encontrado é comparado com a tabela `ticket_state`:
 
 - **Sem linha anterior** → ticket novo → notifica "criado" e grava o estado.
 - **`stage_id` diferente do salvo** → ticket mudou de coluna → notifica "atualizado" e
@@ -181,12 +189,19 @@ especificamente pro(s) chat(s) onde ele é membro (é o que faz a `@menção` fu
 verdade: Telegram só notifica quem está no grupo). Sem nenhum membro cadastrado pra aquele
 criador, a notificação cai pra todos os chats ativos.
 
-> Pra o token nunca expirar sem renovar sozinho, a aplicação OAuth2 na SoftCS precisa ter
-> o escopo `offline_access` habilitado (Identidade > "Continuar conectada mesmo após
-> sair"). Sem isso, a conexão pede `offline_access` mas a SoftCS recusa com
-> `invalid_scope`, e sem `offline_access` concedido o `access_token` dura ~1h sem
-> `refresh_token` — nesse caso "Buscar tickets" avisa "token expirou" e é só clicar em
-> **Conectar** de novo.
+> ⚠️ **Pendência séria em aberto**: mesmo com o escopo `offline_access` habilitado
+> (Identidade > "Continuar conectada mesmo após sair") e reconectado várias vezes, a SoftCS
+> nunca devolveu um `refresh_token` até agora — só `access_token`, que dura ~1h. Isso afeta
+> o polling de verdade: sem reconectar manualmente a cada ~1h, `api/poll-tickets.js` fica
+> incapaz de escanear (confirmado ao vivo: 11h+ sem nenhuma atualização em `ticket_state`
+> por falta de reconexão), então nenhuma notificação sai nesse período. `api/discover-tickets.js`
+> e `api/poll-tickets.js` tentam renovar o token duas vezes por chamada (início e fim) só
+> por garantia, mas isso não ajuda em nada sem um `refresh_token` pra renovar. Se isso não
+> se resolver sozinho, vale abrir chamado com o suporte da SoftCS perguntando especificamente
+> por que a resposta do token nunca inclui `refresh_token` mesmo com `offline_access`
+> concedido — pode ser bug da plataforma ou alguma habilitação adicional do lado deles.
+> Enquanto isso, "Buscar tickets" avisa "token expirou" quando isso acontece, e é só clicar
+> em **Conectar** de novo.
 
 > Nota técnica: a API pagina como `{ data: [...], pagination: { hasMore, nextOffset } }`,
 > não `{ items: [...] }` como a documentação sugere — `extractItems()` em
