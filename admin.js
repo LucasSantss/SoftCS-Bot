@@ -533,10 +533,12 @@ async function runDiscoverLoop() {
   try {
     // Fase 1: reconfirma ao vivo os tickets que já estão salvos (poucos
     // clientes, rápido) — assim eles aparecem e se atualizam primeiro no
-    // Kanban, mesmo que a descoberta abaixo demore ou seja interrompida.
-    // Mensagem própria (phase: "known") pra ficar visível que essa etapa
-    // roda separada, antes da descoberta — sem isso os dois números somam
-    // junto e parece que foi tudo uma varredura só.
+    // Kanban, mesmo que a descoberta abaixo demore, seja interrompida ou
+    // esbarre no rate limit da SoftCS (que só afeta a descoberta, que roda
+    // depois). Mostra a mensagem ANTES de esperar a resposta — como são
+    // poucos clientes, a chamada é rápida o bastante pra passar
+    // despercebida se só atualizarmos o status depois dela voltar.
+    setStatus(discoverStatus, "Reconfirmando tickets já conhecidos…", false);
     try {
       const known = await api("/api/discover-tickets?phase=known");
       mergeAndRender(known, "known");
