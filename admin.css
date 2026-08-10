@@ -40,19 +40,25 @@ input, button { font-family: 'DM Sans', system-ui, sans-serif; }
 
 .muted { color: var(--muted-foreground); font-size: 0.875rem; margin: 0.25rem 0 0; }
 
-.app { display: flex; min-height: 100vh; }
+.app { display: flex; height: 100vh; overflow: hidden; }
 
-/* ─── Sidebar ─── */
+/* ─── Sidebar ───
+   Altura travada em 100vh (não cresce com o conteúdo da página, nem some
+   rolando junto com o main). Se o conteúdo do sidebar não couber, quem
+   ganha barra de rolagem é o .sidebar-nav sozinho — brand e footer ficam
+   sempre visíveis, fixos no topo/rodapé do sidebar. */
 .sidebar {
   width: 240px;
   flex-shrink: 0;
+  height: 100vh;
   background: var(--sidebar-background);
   border-right: 1px solid var(--sidebar-border);
   display: flex;
   flex-direction: column;
   padding: 1.25rem 1rem;
+  overflow: hidden;
 }
-.sidebar-brand { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.5rem 1.5rem; }
+.sidebar-brand { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.5rem 1.5rem; flex-shrink: 0; }
 .brand-icon {
   width: 36px; height: 36px; border-radius: 10px;
   background: linear-gradient(135deg, hsl(267 43% 45%), hsl(255 70% 68%));
@@ -62,7 +68,14 @@ input, button { font-family: 'DM Sans', system-ui, sans-serif; }
 .brand-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.95rem; color: var(--foreground); }
 .brand-sub { font-size: 0.7rem; color: var(--sidebar-foreground); }
 
-.sidebar-nav { flex: 1; display: flex; flex-direction: column; gap: 0.3rem; }
+.sidebar-nav {
+  flex: 1;
+  min-height: 0; /* sem isso o flex item não deixa o overflow-y agir */
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  overflow-y: auto;
+}
 .nav-item {
   display: flex; align-items: center; gap: 0.6rem;
   padding: 0.65rem 0.75rem; border-radius: 10px;
@@ -77,7 +90,7 @@ input, button { font-family: 'DM Sans', system-ui, sans-serif; }
 .nav-item.active { background: var(--sidebar-accent); color: var(--foreground); font-weight: 500; }
 .nav-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); flex-shrink: 0; }
 
-.sidebar-footer { margin-top: auto; }
+.sidebar-footer { margin-top: auto; flex-shrink: 0; display: flex; flex-direction: column; gap: 0.5rem; }
 .status-widget { display: flex; align-items: center; gap: 0.6rem; padding: 0.75rem; border-radius: 10px; background: var(--sidebar-accent); }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); flex-shrink: 0; }
 .status-dot.on { background: var(--success); box-shadow: 0 0 0 3px hsl(152 60% 42% / 0.2); }
@@ -86,10 +99,10 @@ input, button { font-family: 'DM Sans', system-ui, sans-serif; }
 .status-sub { font-size: 0.7rem; color: var(--sidebar-foreground); }
 
 /* ─── Main ─── */
-.main { flex: 1; min-width: 0; }
-.topbar { padding: 1.75rem 2rem 0.5rem; }
+.main { flex: 1; min-width: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.topbar { padding: 1.75rem 2rem 0.5rem; flex-shrink: 0; }
 .topbar h1 { font-size: 1.5rem; font-weight: 700; }
-.content { padding: 1.25rem 2rem 3rem; display: flex; flex-direction: column; gap: 1rem; }
+.content { padding: 1.25rem 2rem 3rem; display: flex; flex-direction: column; gap: 1rem; flex: 1; min-height: 0; overflow-y: auto; }
 .tab-panel { display: none; flex-direction: column; gap: 1rem; }
 .tab-panel.active { display: flex; }
 

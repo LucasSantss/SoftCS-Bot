@@ -451,12 +451,19 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function updateDiscoverProgress({ ticketCount, creatorCount, clientsScanned, hasNames, done, stopped }) {
+function updateDiscoverProgress({ ticketCount, creatorCount, clientsScanned, hasNames, done, stopped, phase }) {
   const namesNote = hasNames === false ? " (API não retornou nome/e-mail do criador — só o ID)" : "";
-  const doneNote = !done ? "Buscando…" : stopped ? "Parado." : "Concluído.";
+  const phaseNote =
+    phase === "known"
+      ? "Reconfirmando tickets já conhecidos…"
+      : !done
+        ? "Buscando tickets novos…"
+        : stopped
+          ? "Parado."
+          : "Concluído.";
   setStatus(
     discoverStatus,
-    `${doneNote} ${ticketCount} ticket(s) aberto(s) em ${clientsScanned} cliente(s) verificados, ${creatorCount} criador(es) único(s).${namesNote}`,
+    `${phaseNote} ${ticketCount} ticket(s) aberto(s) em ${clientsScanned} cliente(s) verificados, ${creatorCount} criador(es) único(s).${namesNote}`,
     false
   );
 }
@@ -501,7 +508,7 @@ async function runDiscoverLoop() {
   let offset = 0;
   let hasNames = false;
 
-  function mergeAndRender(data) {
+  function mergeAndRender(data, phase) {
     for (const ticket of data.tickets) ticketsById.set(ticket.id, ticket);
     for (const creator of data.creators) {
       if (!allCreatorsById.has(creator.id)) allCreatorsById.set(creator.id, creator);
@@ -519,6 +526,7 @@ async function runDiscoverLoop() {
       clientsScanned,
       hasNames,
       done: false,
+      phase,
     });
   }
 
@@ -526,9 +534,12 @@ async function runDiscoverLoop() {
     // Fase 1: reconfirma ao vivo os tickets que já estão salvos (poucos
     // clientes, rápido) — assim eles aparecem e se atualizam primeiro no
     // Kanban, mesmo que a descoberta abaixo demore ou seja interrompida.
+    // Mensagem própria (phase: "known") pra ficar visível que essa etapa
+    // roda separada, antes da descoberta — sem isso os dois números somam
+    // junto e parece que foi tudo uma varredura só.
     try {
       const known = await api("/api/discover-tickets?phase=known");
-      mergeAndRender(known);
+      mergeAndRender(known, "known");
     } catch (err) {
       // Não trava a busca inteira por causa disso — só segue pra descoberta.
       setStatus(discoverStatus, `Aviso ao reconfirmar tickets conhecidos: ${err.message}`, true);
@@ -550,7 +561,7 @@ async function runDiscoverLoop() {
         continue;
       }
 
-      mergeAndRender(data);
+      mergeAndRender(data, "discover");
 
       if (!data.hasMoreClients) break;
       offset = data.nextOffset;
