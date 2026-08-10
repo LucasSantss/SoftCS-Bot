@@ -55,13 +55,20 @@ create table if not exists oauth_pkce_state (
   created_at timestamptz not null default now()
 );
 
--- Nome amigável pra cada coluna do Kanban (stageId), preenchido manualmente no
--- painel — a API pública da SoftCS não retorna o nome do estágio, só o ID.
+-- Nome amigável e posição pra cada coluna do Kanban (stageId), preenchidos
+-- manualmente no painel — a API pública da SoftCS não retorna nome nem
+-- posição do estágio, só o ID (confirmado ao vivo: ticket cru só tem
+-- `stageId`, sem objeto `stage`/`denormalizedStage` embutido). `position`
+-- controla a ordem das colunas no nosso Kanban (menor aparece primeiro);
+-- sem valor definido, a coluna cai no fim (fallback 999 em extractStage()).
 create table if not exists stage_labels (
   stage_id text primary key,
   label text not null,
+  position integer,
   updated_at timestamptz not null default now()
 );
+
+alter table stage_labels add column if not exists position integer;
 
 -- Quais agentes pertencem a cada chat do Telegram. Usado pelo webhook pra
 -- mandar a notificação de um ticket só pro(s) chat(s) onde o criador é

@@ -39,8 +39,8 @@ export default async function handler(req, res) {
     const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
     const clientPagination = clientsResponse?.pagination;
 
-    const stageLabelRows = await sql`select stage_id, label from stage_labels`;
-    const stageLabels = Object.fromEntries(stageLabelRows.map((r) => [r.stage_id, r.label]));
+    const stageLabelRows = await sql`select stage_id, label, position from stage_labels`;
+    const stageLabels = Object.fromEntries(stageLabelRows.map((r) => [r.stage_id, { label: r.label, position: r.position }]));
 
     const ticketLists = await mapWithConcurrency(clients, TICKET_CONCURRENCY, (client) =>
       getClientTickets(client.id, TICKETS_PER_CLIENT, 0).catch((err) => {

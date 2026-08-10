@@ -384,16 +384,36 @@ function renderKanban(tickets) {
     const nameEl = document.createElement("span");
     nameEl.className = "kanban-column-name";
     nameEl.textContent = stage.name;
-    nameEl.title = "Clique pra renomear";
+    nameEl.title = "Clique pra renomear / reordenar";
     nameEl.addEventListener("click", async () => {
       const newLabel = prompt("Nome dessa coluna:", stage.name);
-      if (!newLabel || newLabel === stage.name) return;
+      if (!newLabel) return;
+
+      const currentPosition = stage.position === 999 ? "" : String(stage.position);
+      const newPositionRaw = prompt(
+        "Posição dessa coluna (número — quanto menor, mais à esquerda; deixe em branco pra não mexer):",
+        currentPosition
+      );
+      if (newPositionRaw === null) return; // cancelou
+
+      const body = { stage_id: stage.id, label: newLabel };
+      if (newPositionRaw.trim() !== "") {
+        const parsed = Number.parseInt(newPositionRaw, 10);
+        if (!Number.isNaN(parsed)) body.position = parsed;
+      }
+
       try {
-        await api("/api/stage-labels", {
-          method: "POST",
-          body: JSON.stringify({ stage_id: stage.id, label: newLabel }),
-        });
-        nameEl.textContent = newLabel;
+        await api("/api/stage-labels", { method: "POST", body: JSON.stringify(body) });
+        // Atualiza local e re-renderiza na hora — sem precisar clicar em
+        // "Buscar tickets" de novo só pra ver a nova ordem/nome.
+        for (const ticket of lastTickets) {
+          if (ticket.stage.id === stage.id) {
+            ticket.stage.name = newLabel;
+            if (body.position !== undefined) ticket.stage.position = body.position;
+          }
+        }
+        renderKanban(lastTickets);
+        setStatus(discoverStatus, "Coluna atualizada.", false);
       } catch (err) {
         setStatus(discoverStatus, err.message, true);
       }
@@ -424,6 +444,7 @@ function renderKanban(tickets) {
 const stopDiscoverBtn = document.getElementById("stopDiscoverBtn");
 
 let lastCreators = [];
+let lastTickets = [];
 let stopRequested = false;
 
 function sleep(ms) {
@@ -476,6 +497,7 @@ async function runDiscoverLoop() {
       if (data.hasNames) hasNames = true;
 
       lastCreators = [...allCreatorsById.values()];
+      lastTickets = allTickets;
       renderKanban(allTickets);
       renderCreators(lastCreators);
       updateDiscoverProgress({

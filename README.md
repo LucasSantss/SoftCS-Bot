@@ -118,8 +118,13 @@ Ou seja: qualquer JSON que já tenha aparecido com nome/e-mail/hash de senha emb
 de um endpoint **interno** da SoftCS (sessão logada no navegador — a tela de "Usuários" em
 Configurações), não da API pública. Pra contornar isso:
 
-- **Nome da coluna**: clique no nome da coluna no Kanban (aba Tickets) pra renomear uma vez
-  — fica salvo em `stage_labels` e usado dali em diante.
+- **Nome e ordem da coluna**: clique no nome da coluna no Kanban (aba Tickets) — pede o
+  nome e depois a posição (número; quanto menor, mais à esquerda) e salva os dois em
+  `stage_labels`, usado dali em diante tanto no nosso Kanban quanto no nome do estágio que
+  vai na mensagem do Telegram. Sem posição definida, a coluna cai no fim. É a única forma de
+  fazer nosso board bater com o Kanban real da SoftCS (nome **e** ordem), já que a API
+  pública não devolve nenhum dos dois — confirmado ao vivo, o ticket cru só tem `stageId`,
+  sem nome nem posição embutidos.
 - **Nome/e-mail de quem criou**: cole o payload da tela "Usuários" da SoftCS (JSON, ou o
   texto cru copiado do DevTools) no card "Importar usuários da SoftCS" da aba Agentes —
   importa nome e e-mail de todo mundo de uma vez, indexado pelo ID. O `@` do Telegram
@@ -130,8 +135,10 @@ Configurações), não da API pública. Pra contornar isso:
 
 **Aba Tickets**: conecta a aplicação OAuth2 (Client ID/Secret/Redirect URI) e um único
 botão, **"Buscar todos os tickets abertos"**, traz os tickets abertos (`closedAt` nulo) de
-toda a conta, agrupados em colunas por `stageId` (igual ao Kanban da SoftCS). Clique no
-nome da coluna pra renomear.
+toda a conta, agrupados em colunas por `stageId`. O board fica visível o tempo todo (não é
+só um resultado de busca temporário) — pra bater exatamente com o Kanban real da SoftCS
+(mesmo nome, mesma ordem das colunas), clique em cada nome de coluna e defina nome +
+posição (ver seção acima).
 
 > Contas grandes têm milhares de clientes (testei numa conta real com mais de 2000) e a
 > SoftCS só lista tickets por cliente — não existe um `/tickets` geral (retorna 404) nem um
@@ -372,7 +379,8 @@ sql/
   schema.sql            tabelas: agent_mapping (softcs_user_id, telegram_username opcional,
                          display_name, email), processed_webhook_events, telegram_chats,
                          chat_agents (membros de cada chat), settings, softcs_oauth_tokens,
-                         oauth_pkce_state, stage_labels, allowed_users (allowlist de login),
+                         oauth_pkce_state, stage_labels (nome + posição de cada coluna do
+                         Kanban), allowed_users (allowlist de login),
                          sessions (login do painel), google_oauth_state, ticket_state
                          (snapshot de estágio de cada ticket, usado pelo polling)
 dev-server.js          servidor local leve pra `npm run dev` (sem precisar de vercel CLI)
