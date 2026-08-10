@@ -461,6 +461,31 @@ function updateDiscoverProgress({ ticketCount, creatorCount, clientsScanned, has
   );
 }
 
+// Carrega o Kanban salvo (mantido pelo polling a cada 15min, ver
+// api/poll-tickets.js) assim que a página abre — fica disponível na hora,
+// sem precisar clicar em "Buscar tickets", e só muda quando o polling
+// realmente detectar algo novo. "Buscar tickets" continua disponível pra
+// conferir ao vivo contra a SoftCS quando quiser.
+async function loadStoredTickets() {
+  try {
+    const data = await api("/api/discover-tickets?source=stored");
+    lastTickets = data.tickets;
+    lastCreators = data.creators;
+    renderKanban(lastTickets);
+    if (lastCreators.length) renderCreators(lastCreators);
+    if (lastTickets.length > 0) {
+      setStatus(
+        discoverStatus,
+        `${lastTickets.length} ticket(s) — última atualização do polling automático. Clique em "Buscar todos os tickets abertos" pra conferir ao vivo contra a SoftCS agora.`,
+        false
+      );
+    }
+  } catch (err) {
+    // Sem sessão SoftCS conectada ainda, ou tabela vazia (nenhum polling
+    // rodou ainda) — não é erro fatal, só fica vazio até "Buscar tickets".
+  }
+}
+
 async function runDiscoverLoop() {
   discoverBtn.disabled = true;
   stopDiscoverBtn.style.display = "inline-flex";
@@ -784,9 +809,10 @@ accessForm.addEventListener("submit", async (event) => {
 
 async function boot() {
   await loadMe();
-  await loadAgents(); // precisa terminar antes: loadChats popula o seletor de membros com agentInfoById
+  await loadAgents(); // precisa terminar antes: loadChats popula o seletor de membros, e o board salvo usa agentInfoById pro nome/@ do criador
   loadChats();
   loadConnection();
+  loadStoredTickets();
 }
 
 boot();

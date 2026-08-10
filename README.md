@@ -133,12 +133,18 @@ Configurações), não da API pública. Pra contornar isso:
 
 ## Painel: Tickets, Agentes, Chats, Acesso
 
-**Aba Tickets**: conecta a aplicação OAuth2 (Client ID/Secret/Redirect URI) e um único
-botão, **"Buscar todos os tickets abertos"**, traz os tickets abertos (`closedAt` nulo) de
-toda a conta, agrupados em colunas por `stageId`. O board fica visível o tempo todo (não é
-só um resultado de busca temporário) — pra bater exatamente com o Kanban real da SoftCS
-(mesmo nome, mesma ordem das colunas), clique em cada nome de coluna e defina nome +
-posição (ver seção acima).
+**Aba Tickets**: conecta a aplicação OAuth2 (Client ID/Secret/Redirect URI). O Kanban
+**carrega sozinho ao abrir a página**, lendo o snapshot salvo em `ticket_state` (a mesma
+tabela mantida pelo polling a cada 15min — ver "Detecção via polling") via
+`GET /api/discover-tickets?source=stored`, sem chamar a SoftCS nem gastar rate limit — por
+isso sobrevive a reload e só muda quando o polling realmente detectar algo diferente, não a
+cada vez que a página é aberta. O botão **"Buscar todos os tickets abertos"** continua
+disponível pra fazer uma varredura **ao vivo** contra a SoftCS agora mesmo (sem esperar o
+próximo ciclo de 15min) — útil pra conferir se algum ticket está na coluna errada e
+descobrir se é erro do nosso lado ou coisa que ainda não chegou no snapshot salvo. Pra bater
+exatamente com o Kanban real da SoftCS (mesmo nome, mesma ordem das colunas), clique em cada
+nome de coluna e defina nome + posição (ver seção acima) — vale tanto pro board salvo quanto
+pro ao vivo, já que os dois usam a mesma tabela `stage_labels`.
 
 > Contas grandes têm milhares de clientes (testei numa conta real com mais de 2000) e a
 > SoftCS só lista tickets por cliente — não existe um `/tickets` geral (retorna 404) nem um
@@ -348,9 +354,10 @@ api/
   softcs-oauth.js            conexão OAuth2 da SoftCS: start (botão "Conectar") e callback —
                             um arquivo só cobrindo /api/oauth-start e /api/oauth-callback
                             via rewrite, mesma razão do auth.js
-  discover-tickets.js         escaneia um lote de clientes (?offset=) e devolve os tickets
-                              abertos deles + se há mais lote (hasMoreClients/nextOffset) —
-                              usado pelo Kanban da aba Tickets, não pelo polling
+  discover-tickets.js         dois modos: padrão escaneia um lote de clientes ao vivo
+                              (?offset=) e devolve os tickets abertos deles (botão "Buscar
+                              tickets"); ?source=stored lê o snapshot de ticket_state (o que
+                              o painel carrega sozinho ao abrir a página)
   stage-labels.js               nomes das colunas do Kanban (cadastrados manualmente)
   import-agents.js                importa nome/e-mail em lote (JSON ou stream RSC colado)
   telegram-test.js                  manda uma mensagem de teste pra um chat_id (botão "Testar")
@@ -382,6 +389,8 @@ sql/
                          oauth_pkce_state, stage_labels (nome + posição de cada coluna do
                          Kanban), allowed_users (allowlist de login),
                          sessions (login do painel), google_oauth_state, ticket_state
-                         (snapshot de estágio de cada ticket, usado pelo polling)
+                         (snapshot de cada ticket aberto — estágio, título, prioridade,
+                         cliente — usado pelo polling pra notificar E pelo painel pra
+                         mostrar o Kanban salvo sem precisar de uma varredura ao vivo)
 dev-server.js          servidor local leve pra `npm run dev` (sem precisar de vercel CLI)
 ```

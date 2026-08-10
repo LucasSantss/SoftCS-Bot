@@ -77,40 +77,47 @@ export default async function handler(req, res) {
         ticketsSeen += 1;
 
         const stage = extractStage(ticket, stageLabels);
+        const clientName = extractClientName(ticket, clientNameById);
+
+        // Decide antes de escrever: sem linha anterior = novo; stage_id
+        // diferente do salvo = mudou de coluna. title/priority/client_name
+        // são só cosméticos (pro Kanban salvo) e ficam sempre atualizados,
+        // não entram nessa decisão.
         const previousRows = await sql`select stage_id from ticket_state where ticket_id = ${ticket.id}`;
         const previous = previousRows[0];
 
+        await sql`
+          insert into ticket_state (ticket_id, public_id, stage_id, title, priority, client_name, created_by_id)
+          values (${ticket.id}, ${ticket.publicId ?? null}, ${stage.id}, ${ticket.title ?? null}, ${ticket.priority ?? null}, ${clientName}, ${ticket.createdById ?? null})
+          on conflict (ticket_id) do update set
+            stage_id = excluded.stage_id,
+            title = excluded.title,
+            priority = excluded.priority,
+            client_name = excluded.client_name,
+            updated_at = now()
+        `;
+
         if (!previous) {
-          await sql`
-            insert into ticket_state (ticket_id, public_id, stage_id, title, created_by_id)
-            values (${ticket.id}, ${ticket.publicId ?? null}, ${stage.id}, ${ticket.title ?? null}, ${ticket.createdById ?? null})
-            on conflict (ticket_id) do nothing
-          `;
           if (!seeding) {
             await notifyTicketEvent({
               kind: 'created',
               title: ticket.title,
               priority: ticket.priority,
               publicId: ticket.publicId,
-              clientName: extractClientName(ticket, clientNameById),
+              clientName,
               stageId: stage.id,
               createdById: ticket.createdById,
             });
             notified += 1;
           }
         } else if (previous.stage_id !== stage.id) {
-          await sql`
-            update ticket_state
-            set stage_id = ${stage.id}, title = ${ticket.title ?? null}, updated_at = now()
-            where ticket_id = ${ticket.id}
-          `;
           if (!seeding) {
             await notifyTicketEvent({
               kind: 'updated',
               title: ticket.title,
               priority: ticket.priority,
               publicId: ticket.publicId,
-              clientName: extractClientName(ticket, clientNameById),
+              clientName,
               stageId: stage.id,
               createdById: ticket.createdById,
             });

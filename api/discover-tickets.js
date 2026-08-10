@@ -18,12 +18,78 @@ import {
 // escaneia UM lote de clientes (`offset`/`limit` na querystring) e diz se há
 // mais — o front chama de novo sozinho, em loop, até acabar ou o usuário
 // clicar em "Parar".
+//
+// ?source=stored lê o Kanban salvo em ticket_state (mantido pelo polling em
+// api/poll-tickets.js) em vez de escanear a SoftCS ao vivo — é o que o
+// painel carrega sozinho ao abrir a página, pra o board ficar disponível na
+// hora e só mudar quando o polling realmente detectar algo, sem precisar
+// clicar em "Buscar tickets" toda vez que a página recarrega. O botão
+// "Buscar tickets" continua fazendo a varredura ao vivo (modo padrão,
+// sem esse parâmetro) — útil pra conferir contra a SoftCS na hora.
+async function handleStored(req, res) {
+  const rows = await sql`
+    select
+      ts.ticket_id, ts.public_id, ts.stage_id, ts.title, ts.priority, ts.client_name,
+      ts.created_by_id, ts.updated_at,
+      sl.label as stage_label, sl.position as stage_position,
+      am.display_name as creator_name, am.email as creator_email
+    from ticket_state ts
+    left join stage_labels sl on sl.stage_id = ts.stage_id
+    left join agent_mapping am on am.softcs_user_id = ts.created_by_id
+    order by ts.updated_at desc
+  `;
+
+  const creatorsById = new Map();
+  const tickets = rows.map((r) => {
+    const createdBy = r.created_by_id
+      ? { id: r.created_by_id, name: r.creator_name ?? null, email: r.creator_email ?? null }
+      : null;
+    if (createdBy && !creatorsById.has(createdBy.id)) creatorsById.set(createdBy.id, createdBy);
+
+    return {
+      id: r.ticket_id,
+      publicId: r.public_id,
+      title: r.title ?? '(sem título)',
+      priority: r.priority,
+      clientName: r.client_name,
+      createdAt: null,
+      createdBy,
+      stage: {
+        id: r.stage_id ?? 'sem-estagio',
+        name: r.stage_label ?? (r.stage_id ? `Coluna #${r.stage_id.slice(-4)}` : 'Sem estágio'),
+        color: null,
+        position: typeof r.stage_position === 'number' ? r.stage_position : 999,
+      },
+    };
+  });
+
+  res.status(200).json({
+    tickets,
+    creators: [...creatorsById.values()],
+    clientsScanned: null,
+    hasNames: tickets.some((t) => t.createdBy?.name),
+    hasMoreClients: false,
+    nextOffset: null,
+    stored: true,
+  });
+}
+
 export default async function handler(req, res) {
   const user = await requireSession(req, res);
   if (!user) return;
 
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'method not allowed' });
+    return;
+  }
+
+  if (req.query.source === 'stored') {
+    try {
+      await handleStored(req, res);
+    } catch (error) {
+      console.error('Erro lendo o Kanban salvo:', error);
+      res.status(500).json({ error: error.message });
+    }
     return;
   }
 
