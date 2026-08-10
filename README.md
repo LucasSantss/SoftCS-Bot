@@ -62,20 +62,26 @@ a arquitetura de mensagem/roteamento (`lib/ticket-notify.js`) já é compartilha
 
 ## Detecção via polling
 
-`api/poll-tickets.js` é chamado por um workflow do GitHub Actions
-([.github/workflows/poll-tickets.yml](.github/workflows/poll-tickets.yml)) a cada 15
-minutos, autenticado por um header `Authorization: Bearer <CRON_SECRET>` (mesmo valor
-cadastrado como env var na Vercel e como secret `CRON_SECRET` no repositório do GitHub — ver
-Setup). Não roda como Cron Job da própria Vercel porque **o plano Hobby limita cron a 1x por
-dia** — inviável pra isso. Duas fases, nessa ordem, como dois steps separados no workflow:
+`api/poll-tickets.js` é chamado por dois workflows do GitHub Actions separados,
+autenticados por um header `Authorization: Bearer <CRON_SECRET>` (mesmo valor cadastrado
+como env var na Vercel e como secret `CRON_SECRET` no repositório do GitHub — ver Setup).
+Não roda como Cron Job da própria Vercel porque **o plano Hobby limita cron a 1x por dia** —
+inviável pra isso.
 
-**1) `?phase=known`** — reconfirma só os clientes donos de tickets que **já estão** em
-`ticket_state` (uma chamada só, sem paginação, já que são poucos clientes — um por ticket já
-conhecido, não a conta inteira). Roda primeiro e sempre completa, então a movimentação de
-tickets já conhecidos é detectada de forma confiável todo ciclo de 15min, mesmo que a fase 2
-não termine a tempo do token expirar.
+**1) `?phase=known`, a cada 5min**
+([.github/workflows/poll-known.yml](.github/workflows/poll-known.yml)) — reconfirma só os
+clientes donos de tickets que **já estão** em `ticket_state` (uma chamada só, sem
+paginação, já que são poucos clientes — um por ticket já conhecido, não a conta inteira). É
+a frequência mais alta que dá pra confiar no GitHub Actions — a sintaxe de cron aceita
+`* * * * *` (todo minuto), mas a própria documentação do GitHub avisa que execuções
+agendadas atrasam bastante em períodos de carga alta e não garante nada abaixo de uns 5min;
+por isso é o intervalo usado, não 1min. Roda separado da descoberta, então a movimentação de
+tickets já conhecidos é detectada de forma confiável a cada 5min, mesmo que a descoberta
+abaixo não termine a tempo do token expirar.
 
-**2) Descoberta (padrão, sem `phase`)** — escaneia **um lote de clientes** (mesmo padrão de
+**2) Descoberta (padrão, sem `phase`), a cada 15min**
+([.github/workflows/poll-tickets.yml](.github/workflows/poll-tickets.yml)) — escaneia **um
+lote de clientes** (mesmo padrão de
 `api/discover-tickets.js`, via `lib/ticket-scan.js`, compartilhado entre os dois) pra achar
 tickets novos em clientes ainda não vistos; o workflow encadeia as chamadas em loop (bash +
 `jq`) até `hasMoreClients` virar `false`, com o mesmo backoff de rate limit
@@ -90,8 +96,9 @@ antes). Com o cursor, o progresso acumula entre execuções (mesmo as que falham
 completar uma volta inteira pela conta, e então reinicia do zero pro próximo ciclo.
 `?offset=` na query ainda funciona como override manual pra debug.
 
-As duas fases usam a mesma lógica de comparação (`processTicket()` em `api/poll-tickets.js`):
-cada ticket aberto encontrado é comparado com a tabela `ticket_state`:
+As duas fases usam a mesma lógica de comparação (`processTicket()` em `lib/ticket-notify.js`,
+compartilhado também com `api/discover-tickets.js` — ver seção do Painel): cada ticket
+aberto encontrado é comparado com a tabela `ticket_state`:
 
 - **Sem linha anterior** → ticket novo → notifica "criado" e grava o estado.
 - **`stage_id` diferente do salvo** → ticket mudou de coluna → notifica "atualizado" e
@@ -218,8 +225,11 @@ criador, a notificação cai pra todos os chats ativos.
 > o polling de verdade: sem reconectar manualmente a cada ~1h, `api/poll-tickets.js` fica
 > incapaz de escanear (confirmado ao vivo: 11h+ sem nenhuma atualização em `ticket_state`
 > por falta de reconexão), então nenhuma notificação sai nesse período. `api/discover-tickets.js`
-> e `api/poll-tickets.js` tentam renovar o token duas vezes por chamada (início e fim) só
-> por garantia, mas isso não ajuda em nada sem um `refresh_token` pra renovar. Se isso não
+> e `api/poll-tickets.js` tentam renovar o token no início de cada chamada, e no fim de cada
+> finalização chamam `maybeRenewTokenAlternating()` (`lib/softcs-api.js`) — que só tenta de
+> fato uma finalização sim, outra não (o estado do intercalamento fica salvo em `settings`).
+> Nenhuma dessas tentativas ajuda em nada sem um `refresh_token` pra renovar de verdade — a
+> tentativa simplesmente falha rápido e sem custo (só loga o erro). Se isso não
 > se resolver sozinho, vale abrir chamado com o suporte da SoftCS perguntando especificamente
 > por que a resposta do token nunca inclui `refresh_token` mesmo com `offline_access`
 > concedido — pode ser bug da plataforma ou alguma habilitação adicional do lado deles.
@@ -333,18 +343,21 @@ especificamente ali quando um desses agentes for o criador.
 ### 6. Ligar o polling (GitHub Actions)
 
 Sem webhook disponível na SoftCS (ver "Por que polling, não webhook" acima), quem detecta
-ticket novo/movido é o workflow [.github/workflows/poll-tickets.yml](.github/workflows/poll-tickets.yml),
-rodando a cada 15 minutos.
+mudança são dois workflows:
+[.github/workflows/poll-known.yml](.github/workflows/poll-known.yml) (tickets já conhecidos,
+a cada 5 minutos) e
+[.github/workflows/poll-tickets.yml](.github/workflows/poll-tickets.yml) (descoberta de
+tickets novos, a cada 15 minutos).
 
 1. No repositório do GitHub, vá em **Settings > Secrets and variables > Actions** e crie um
    secret chamado `CRON_SECRET` com o **mesmo valor** que você colocou na env var
-   `CRON_SECRET` da Vercel (passo 2).
-2. Confirme que o workflow está na branch padrão do repositório — `schedule` só dispara pra
-   workflows presentes ali (aqui, a branch padrão já é a que você usa pra tudo).
+   `CRON_SECRET` da Vercel (passo 2) — vale pros dois workflows.
+2. Confirme que os dois workflows estão na branch padrão do repositório — `schedule` só
+   dispara pra workflows presentes ali (aqui, a branch padrão já é a que você usa pra tudo).
 3. As Actions precisam estar habilitadas no repositório (**Settings > Actions > General** —
    normalmente já vêm habilitadas por padrão).
-4. Pra não esperar até 15 minutos pra testar, dispare manualmente: aba **Actions** do
-   GitHub > **Poll SoftCS tickets** > **Run workflow**.
+4. Pra não esperar pra testar, dispare manualmente: aba **Actions** do GitHub >
+   **"Reconfirm known SoftCS tickets"** ou **"Poll SoftCS tickets"** > **Run workflow**.
 
 Na primeira execução depois de configurado, o polling entra em **modo seed** automaticamente
 (grava o estado de todos os tickets abertos sem notificar ninguém — senão inundaria os
@@ -378,9 +391,11 @@ middleware.js             Edge Middleware: sem cookie de sessão, redireciona / 
 admin.css               visual baseado no design system do CodeRise Hub
 admin.js                 lógica das abas (fetch nas APIs abaixo); redireciona pro login em 401
 .github/workflows/
-  poll-tickets.yml     roda api/poll-tickets.js a cada 15min: primeiro ?phase=known (reconfirma
-                       tickets já conhecidos), depois a descoberta em loop de lotes (bash + jq)
-                       com backoff se a SoftCS responder 429 — ver "Detecção via polling"
+  poll-known.yml        roda api/poll-tickets.js?phase=known a cada 5min — reconfirma só os
+                       tickets já conhecidos, intervalo mais curto viável no GitHub Actions
+  poll-tickets.yml       roda api/poll-tickets.js a cada 15min em loop de lotes (bash + jq)
+                        com backoff se a SoftCS responder 429 — descobre tickets novos, ver
+                        "Detecção via polling"
 api/
   webhook.js            código morto por enquanto: endpoint que a SoftCS chamaria a cada
                         evento de ticket, mas não há webhook disponível na plataforma (ver
@@ -437,8 +452,10 @@ lib/
   agents.js              busca o @username cadastrado pro criador do ticket
   telegram.js             envio de mensagem via Bot API (um chat ou broadcast pra vários)
   settings.js              leitura/escrita da tabela settings
-  softcs-api.js             token OAuth (refresh automático) + chamadas à API da SoftCS
-                            (getClients, getClientTickets)
+  softcs-api.js             token OAuth (refresh automático via getValidAccessToken +
+                            maybeRenewTokenAlternating, que só tenta de fato uma finalização
+                            de ciclo sim, outra não) + chamadas à API da SoftCS (getClients,
+                            getClientTickets)
 sql/
   schema.sql            tabelas: agent_mapping (softcs_user_id, telegram_username opcional,
                          display_name, email), processed_webhook_events, telegram_chats,

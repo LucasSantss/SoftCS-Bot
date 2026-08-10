@@ -1,5 +1,5 @@
 import sql from '../lib/db.js';
-import { getValidAccessToken, getClients, getClientTickets } from '../lib/softcs-api.js';
+import { getValidAccessToken, getClients, getClientTickets, maybeRenewTokenAlternating } from '../lib/softcs-api.js';
 import { requireSession } from '../lib/auth.js';
 import { processTicket, SEED_FLAG_KEY } from '../lib/ticket-notify.js';
 import { getSetting, setSettings } from '../lib/settings.js';
@@ -109,6 +109,13 @@ async function handleKnown(req, res) {
       tickets.push(entry);
     }
   }
+
+  // Tenta renovar o token no fim de cada finalização, intercalado (uma vez
+  // sim, outra não — ver maybeRenewTokenAlternating em lib/softcs-api.js).
+  // Importa mais aqui do que na descoberta padrão: com a fase known rodando
+  // a cada 5min (ver .github/workflows/poll-known.yml), essa é a chamada
+  // que mais frequentemente teria chance de pegar um refresh_token cedo.
+  await maybeRenewTokenAlternating();
 
   res.status(200).json({
     tickets,
@@ -256,12 +263,9 @@ export default async function handler(req, res) {
       await setSettings({ [SEED_FLAG_KEY]: 'true' });
     }
 
-    // Renova o token de novo aqui no fim (além do início) — se a varredura
-    // levou um tempo (ex: esperou rate limit), isso mantém o token o mais
-    // fresco possível pra próxima chamada do loop, sem esperar ela precisar
-    // disso pra só então renovar. getValidAccessToken() já checa a margem
-    // de expiração sozinho, então isso não força uma renovação desnecessária.
-    await getValidAccessToken().catch((err) => console.error('Falha ao renovar token no fim da busca:', err.message));
+    // Tenta renovar o token no fim de cada finalização, intercalado (uma
+    // vez sim, outra não — ver maybeRenewTokenAlternating em lib/softcs-api.js).
+    await maybeRenewTokenAlternating();
 
     res.status(200).json({
       tickets,

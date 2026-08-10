@@ -1,5 +1,5 @@
 import sql from '../lib/db.js';
-import { getValidAccessToken, getClients, getClientTickets } from '../lib/softcs-api.js';
+import { getValidAccessToken, getClients, getClientTickets, maybeRenewTokenAlternating } from '../lib/softcs-api.js';
 import { processTicket, SEED_FLAG_KEY } from '../lib/ticket-notify.js';
 import { getSetting, setSettings } from '../lib/settings.js';
 import {
@@ -155,12 +155,9 @@ export default async function handler(req, res) {
               : Number.parseInt(await getSetting(CURSOR_KEY), 10) || 0
           );
 
-    // Renova o token de novo aqui no fim (além do início) — cada chamada é
-    // separada (GitHub Actions), então isso mantém o token o mais fresco
-    // possível pra próxima chamada do loop, sem esperar ela precisar disso
-    // pra só então renovar. getValidAccessToken() já checa a margem de
-    // expiração sozinho, então isso não força uma renovação desnecessária.
-    await getValidAccessToken().catch((err) => console.error('Falha ao renovar token no fim do polling:', err.message));
+    // Tenta renovar o token no fim de cada finalização, intercalado (uma
+    // vez sim, outra não — ver maybeRenewTokenAlternating em lib/softcs-api.js).
+    await maybeRenewTokenAlternating();
 
     res.status(200).json({ seeding, ...result });
   } catch (error) {

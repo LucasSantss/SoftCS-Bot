@@ -1,0 +1,30 @@
+name: Reconfirm known SoftCS tickets
+
+# Roda a fase "known" (reconfirma só os clientes donos de tickets que já
+# estão em ticket_state — ver api/poll-tickets.js) a cada 5min, separado do
+# workflow de descoberta completa (poll-tickets.yml, a cada 15min). GitHub
+# Actions não garante execução confiável abaixo de ~5min (cron */1 existe na
+# sintaxe, mas atrasa bastante em períodos de carga alta), então esse é o
+# intervalo mais curto viável — ainda assim 3x mais frequente que os 15min
+# da descoberta completa.
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  poll-known:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reconfirmar tickets já conhecidos
+        env:
+          POLL_URL: https://softcs-bot.vercel.app/api/poll-tickets
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -e
+          http_code=$(curl -s -o /tmp/known.json -w "%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$POLL_URL?phase=known")
+          echo "HTTP $http_code:"
+          cat /tmp/known.json
+          echo
