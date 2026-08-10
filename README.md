@@ -302,10 +302,15 @@ Na aba **Tickets**:
    `tickets:read`, `clients:read` e `offline_access` (categoria Identidade).
 2. Preencha Client ID, Client Secret e Redirect URI no painel e clique em **Salvar**.
 3. Clique em **Conectar** — abre o fluxo OAuth2 (Authorization Code + PKCE) numa janela
-   popup, não navega a aba do painel pra fora. A popup fecha sozinha quando termina e o
-   badge "conectado"/"não conectado" atualiza automaticamente, sem precisar recarregar a
-   página (se o navegador bloquear a popup, cai pro comportamento antigo de navegar a
-   própria aba). O token fica salvo no Neon.
+   popup, não navega a aba do painel pra fora. Quem fecha a popup é a própria aba do
+   painel (ela fica de olho em `/api/settings` enquanto a popup existir), não a popup
+   tentando se fechar sozinha — depois de passar pelo domínio da SoftCS e voltar, o
+   navegador pode cortar o vínculo entre as duas janelas (Cross-Origin-Opener-Policy) e
+   `window.close()`/`postMessage` de dentro da popup deixam de funcionar; a aba principal
+   sempre consegue fechar uma popup que ela mesma abriu, então é ela quem garante isso. O
+   badge "conectado"/"não conectado" atualiza sozinho quando a popup fecha (se o navegador
+   bloquear a popup, cai pro comportamento antigo de navegar a própria aba). O token fica
+   salvo no Neon.
 4. Clique em **Buscar todos os tickets abertos** — o board vai se preenchendo sozinho, lote
    a lote. Renomeie as colunas clicando nelas.
 

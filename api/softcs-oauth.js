@@ -143,17 +143,21 @@ async function handleCallback(req, res) {
   `;
 
   // O "Conectar" do painel abre esse callback numa janela popup, não navega
-  // a aba principal (ver admin.js) — essa página só existe pra fechar
-  // sozinha e avisar a janela que abriu (window.opener) que deu certo, pra
-  // o painel atualizar o badge "conectado" sem sair da tela onde estava.
+  // a aba principal (ver admin.js). Tenta o caminho rápido (avisar via
+  // postMessage e se fechar sozinha), mas isso só funciona se o navegador
+  // não tiver cortado o vínculo com quem abriu essa popup no meio do
+  // caminho (Cross-Origin-Opener-Policy, comum em redirects cross-origin
+  // como esse pra SoftCS e de volta) — por isso quem garante o fechamento
+  // de verdade é a aba principal, que fica de olho em /api/settings e fecha
+  // essa popup por fora assim que "conectado" aparecer (ver admin.js).
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.status(200).send(`<!doctype html>
 <title>Conectado</title>
-<body style="background:#0a0a12;color:#e5e5ea;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
-  <p>Conectado — essa janela fecha sozinha…</p>
+<body style="background:#0a0a12;color:#e5e5ea;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;padding:1rem;">
+  <p>Conectado! Essa janela fecha sozinha em instantes — se não fechar, pode fechar você mesmo e voltar pro painel.</p>
   <script>
     if (window.opener) {
-      window.opener.postMessage({ type: 'softcs-oauth-connected' }, window.location.origin);
+      try { window.opener.postMessage({ type: 'softcs-oauth-connected' }, window.location.origin); } catch {}
     }
     window.close();
   </script>
