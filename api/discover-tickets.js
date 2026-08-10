@@ -142,6 +142,13 @@ export default async function handler(req, res) {
       }
     }
 
+    // Renova o token de novo aqui no fim (além do início) — se a varredura
+    // levou um tempo (ex: esperou rate limit), isso mantém o token o mais
+    // fresco possível pra próxima chamada do loop, sem esperar ela precisar
+    // disso pra só então renovar. getValidAccessToken() já checa a margem
+    // de expiração sozinho, então isso não força uma renovação desnecessária.
+    await getValidAccessToken().catch((err) => console.error('Falha ao renovar token no fim da busca:', err.message));
+
     res.status(200).json({
       tickets,
       creators: [...creatorsById.values()],

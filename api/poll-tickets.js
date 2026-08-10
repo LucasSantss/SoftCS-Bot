@@ -132,6 +132,13 @@ export default async function handler(req, res) {
       await setSettings({ [SEED_FLAG_KEY]: 'true' });
     }
 
+    // Renova o token de novo aqui no fim (além do início) — cada lote é uma
+    // chamada separada do GitHub Actions, então isso mantém o token o mais
+    // fresco possível pro próximo lote do loop, sem esperar ele precisar
+    // disso pra só então renovar. getValidAccessToken() já checa a margem
+    // de expiração sozinho, então isso não força uma renovação desnecessária.
+    await getValidAccessToken().catch((err) => console.error('Falha ao renovar token no fim do polling:', err.message));
+
     res.status(200).json({
       seeding,
       clientsScanned: clients.length,
