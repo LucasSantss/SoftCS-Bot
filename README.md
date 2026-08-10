@@ -180,6 +180,15 @@ criador, a notificação cai pra todos os chats ativos.
 > `api/discover-tickets.js` lida com os dois formatos. `limit` máximo é 200; os tickets
 > vêm ordenados por `sortBy=kanbanPosition` (o mesmo critério do board visual).
 
+> `getClients()` em [lib/softcs-api.js](lib/softcs-api.js) filtra `status=ACTIVE` (testado
+> ao vivo — a API honra esse filtro de verdade, server-side, não só devolve o campo pra
+> filtrar depois). Clientes inativos/churned nunca abrem ticket novo, então excluí-los do
+> escaneamento (tanto aqui quanto no polling) reduz bastante o número de clientes
+> verificados a cada varredura — menos chamadas, mais rápido, mais longe do rate limit.
+> Efeito colateral: um ticket aberto que pertença a um cliente que virou inativo some das
+> varreduras (Kanban e polling) do mesmo jeito que sumiria se fosse fechado — não é tratado
+> como caso especial.
+
 **Aba Acesso** (só aparece pra `lucasrodrigues@chatbotmaker.io`, o master): lista de
 e-mails `@chatbotmaker.io` liberados a entrar no painel (`allowed_users`), com botão pra
 liberar um novo e remover quem já tinha acesso. Remover um e-mail também derruba na hora
