@@ -311,16 +311,11 @@ Na aba **Tickets**:
    redirect URI `https://SEU-DOMINIO.vercel.app/api/oauth-callback`, e habilite os escopos
    `tickets:read`, `clients:read` e `offline_access` (categoria Identidade).
 2. Preencha Client ID, Client Secret e Redirect URI no painel e clique em **Salvar**.
-3. Clique em **Conectar** — abre o fluxo OAuth2 (Authorization Code + PKCE) numa janela
-   popup, não navega a aba do painel pra fora. Quem fecha a popup é a própria aba do
-   painel (ela fica de olho em `/api/settings` enquanto a popup existir), não a popup
-   tentando se fechar sozinha — depois de passar pelo domínio da SoftCS e voltar, o
-   navegador pode cortar o vínculo entre as duas janelas (Cross-Origin-Opener-Policy) e
-   `window.close()`/`postMessage` de dentro da popup deixam de funcionar; a aba principal
-   sempre consegue fechar uma popup que ela mesma abriu, então é ela quem garante isso. O
-   badge "conectado"/"não conectado" atualiza sozinho quando a popup fecha (se o navegador
-   bloquear a popup, cai pro comportamento antigo de navegar a própria aba). O token fica
-   salvo no Neon.
+3. Clique em **Conectar** — conclui o fluxo OAuth2 (Authorization Code + PKCE). A aba
+   navega pra SoftCS (inevitável, é OAuth de verdade) e volta sozinha pro painel assim que
+   o token é salvo — sem página morta pra fechar manualmente. (Uma janela popup pra evitar
+   até essa navegação foi tentada e abandonada: bloqueador de popup do navegador e
+   Cross-Origin-Opener-Policy causavam falhas diferentes, fora do nosso controle.)
 4. Clique em **Buscar todos os tickets abertos** — o board vai se preenchendo sozinho, lote
    a lote. Renomeie as colunas clicando nelas.
 

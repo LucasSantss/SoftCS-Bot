@@ -322,61 +322,18 @@ saveConnectionBtn.addEventListener("click", async () => {
   }
 });
 
-// Abre o fluxo OAuth da SoftCS numa janela popup em vez de navegar a aba
-// principal pra fora do painel — o passo pela SoftCS é inevitável (é OAuth
-// de verdade), mas assim a aba do painel fica parada.
-//
-// A popup tentar se fechar sozinha (window.close() em api/softcs-oauth.js)
-// não é confiável: depois que ela navega pro domínio da SoftCS e volta, o
-// navegador pode cortar o vínculo com quem abriu ela (Cross-Origin-Opener-
-// -Policy, fora do nosso controle) — nesse caso window.close() e postMessage
-// de dentro da popup simplesmente não fazem nada, e a janela fica aberta
-// pra sempre. Por isso quem garante o fechamento é a PRÓPRIA aba principal:
-// ela guarda a referência da popup que ela mesma abriu (isso sempre
-// funciona, independente de COOP) e fica checando /api/settings enquanto a
-// popup existir — assim que "conectado" vira true, fecha a popup por fora.
+// Janela popup pro OAuth foi tentada e abandonada: bloqueador de popup do
+// navegador impede ela de abrir boa parte das vezes (caindo direto no
+// fallback de navegar a aba mesmo), e quando abre, o Cross-Origin-Opener-
+// -Policy corta o vínculo com quem abriu depois que ela passa pelo domínio
+// da SoftCS, impedindo o fechamento automático — duas causas diferentes de
+// falha, fora do nosso controle. A navegação pela SoftCS é inevitável de
+// qualquer forma (é OAuth de verdade); o jeito confiável de não deixar uma
+// página morta pra fechar manualmente é o próprio callback (ver
+// api/softcs-oauth.js) redirecionar de volta pro painel sozinho — volta pra
+// cá já com o token salvo, e boot() atualiza o badge de conexão na hora.
 connectBtn.addEventListener("click", () => {
-  const popup = window.open("/api/oauth-start", "softcs-oauth", "width=520,height=720");
-  if (!popup) {
-    // Popup bloqueada pelo navegador — cai pro comportamento antigo.
-    window.location.href = "/api/oauth-start";
-    return;
-  }
-
-  let attempts = 0;
-  const MAX_ATTEMPTS = 120; // ~2 minutos, checando a cada 1s
-  const poll = setInterval(async () => {
-    attempts += 1;
-    if (popup.closed) {
-      clearInterval(poll);
-      loadConnection();
-      return;
-    }
-    if (attempts >= MAX_ATTEMPTS) {
-      clearInterval(poll);
-      return;
-    }
-    try {
-      const data = await api("/api/settings");
-      if (data.oauth_connected) {
-        clearInterval(poll);
-        popup.close();
-        loadConnection();
-      }
-    } catch {
-      // erro isolado numa checagem não cancela o polling — tenta de novo no próximo tick
-    }
-  }, 1000);
-});
-
-// Atalho: se o postMessage da popup conseguir chegar (só funciona quando o
-// navegador não cortou o vínculo via COOP), atualiza na hora em vez de
-// esperar o próximo tick do polling acima.
-window.addEventListener("message", (event) => {
-  if (event.origin !== window.location.origin) return;
-  if (event.data?.type === "softcs-oauth-connected") {
-    loadConnection();
-  }
+  window.location.href = "/api/oauth-start";
 });
 
 // ─── Kanban de tickets ──────────────────────────────────────────────────────
