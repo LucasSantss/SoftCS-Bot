@@ -142,7 +142,22 @@ async function handleCallback(req, res) {
       updated_at = now()
   `;
 
-  res.status(200).send('Conectado — pode fechar esta aba e voltar pro painel.');
+  // O "Conectar" do painel abre esse callback numa janela popup, não navega
+  // a aba principal (ver admin.js) — essa página só existe pra fechar
+  // sozinha e avisar a janela que abriu (window.opener) que deu certo, pra
+  // o painel atualizar o badge "conectado" sem sair da tela onde estava.
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.status(200).send(`<!doctype html>
+<title>Conectado</title>
+<body style="background:#0a0a12;color:#e5e5ea;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+  <p>Conectado — essa janela fecha sozinha…</p>
+  <script>
+    if (window.opener) {
+      window.opener.postMessage({ type: 'softcs-oauth-connected' }, window.location.origin);
+    }
+    window.close();
+  </script>
+</body>`);
 }
 
 // Um arquivo só cobrindo /api/oauth-start e /api/oauth-callback (SoftCS) —

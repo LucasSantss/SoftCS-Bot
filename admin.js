@@ -322,8 +322,31 @@ saveConnectionBtn.addEventListener("click", async () => {
   }
 });
 
+// Abre o fluxo OAuth da SoftCS numa janela popup em vez de navegar a aba
+// principal pra fora do painel — o passo pela SoftCS é inevitável (é OAuth
+// de verdade), mas assim a aba do painel fica parada e só o badge de status
+// muda quando a conexão terminar (ver api/softcs-oauth.js: o callback fecha
+// o popup sozinho e avisa via postMessage).
 connectBtn.addEventListener("click", () => {
-  window.location.href = "/api/oauth-start";
+  const popup = window.open("/api/oauth-start", "softcs-oauth", "width=520,height=720");
+  if (!popup) {
+    // Popup bloqueada pelo navegador — cai pro comportamento antigo.
+    window.location.href = "/api/oauth-start";
+    return;
+  }
+  const watchClosed = setInterval(() => {
+    if (popup.closed) {
+      clearInterval(watchClosed);
+      loadConnection();
+    }
+  }, 500);
+});
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== window.location.origin) return;
+  if (event.data?.type === "softcs-oauth-connected") {
+    loadConnection();
+  }
 });
 
 // ─── Kanban de tickets ──────────────────────────────────────────────────────

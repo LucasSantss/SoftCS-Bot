@@ -301,8 +301,11 @@ Na aba **Tickets**:
    redirect URI `https://SEU-DOMINIO.vercel.app/api/oauth-callback`, e habilite os escopos
    `tickets:read`, `clients:read` e `offline_access` (categoria Identidade).
 2. Preencha Client ID, Client Secret e Redirect URI no painel e clique em **Salvar**.
-3. Clique em **Conectar** — conclui o fluxo OAuth2 (Authorization Code + PKCE) e salva o
-   token no Neon.
+3. Clique em **Conectar** — abre o fluxo OAuth2 (Authorization Code + PKCE) numa janela
+   popup, não navega a aba do painel pra fora. A popup fecha sozinha quando termina e o
+   badge "conectado"/"não conectado" atualiza automaticamente, sem precisar recarregar a
+   página (se o navegador bloquear a popup, cai pro comportamento antigo de navegar a
+   própria aba). O token fica salvo no Neon.
 4. Clique em **Buscar todos os tickets abertos** — o board vai se preenchendo sozinho, lote
    a lote. Renomeie as colunas clicando nelas.
 
