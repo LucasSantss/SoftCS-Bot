@@ -163,7 +163,16 @@ descobrir se é erro do nosso lado ou coisa que ainda não chegou no snapshot sa
 o polling (ver "Detecção via polling"), essa busca ao vivo também reconfirma primeiro os
 clientes donos de tickets que já estão em `ticket_state` (`?phase=known`, rápido) antes de
 seguir descobrindo o resto da conta em lotes — o botão manual usa a mesma prioridade que o
-polling automático, não só a ordem que a SoftCS devolve. Pra bater exatamente com o Kanban
+polling automático, não só a ordem que a SoftCS devolve.
+
+**A busca manual também grava e notifica, exatamente como o polling automático** — não é só
+um preview. As duas fases (`?phase=known` e a descoberta padrão) chamam o mesmo
+`processTicket()` de `lib/ticket-notify.js` que o polling usa: comparam com `ticket_state` e
+disparam a notificação no Telegram se algo mudou, antes de devolver os dados pro Kanban.
+Isso importa na prática porque, enquanto o `access_token` não tiver `refresh_token` (ver
+aviso abaixo), o polling automático nem sempre roda a tempo — clicar em "Buscar todos os
+tickets abertos" manualmente também conta como uma varredura de verdade e pode detectar e
+notificar mudanças que o ciclo de 15min perdeu. Pra bater exatamente com o Kanban
 real da SoftCS (mesmo nome, mesma ordem das colunas), clique em cada nome de coluna e defina
 nome + posição (ver seção acima) — vale tanto pro board salvo quanto pro ao vivo, já que os
 dois usam a mesma tabela `stage_labels`.
@@ -392,7 +401,9 @@ api/
                               tickets"); ?phase=known reconfirma ao vivo só os clientes
                               já em ticket_state primeiro (mesma prioridade do polling);
                               ?source=stored lê o snapshot de ticket_state (o que o painel
-                              carrega sozinho ao abrir a página)
+                              carrega sozinho ao abrir a página). Os dois primeiros também
+                              usam processTicket() — a busca manual grava e notifica igual
+                              ao polling automático, não é só um preview
   stage-labels.js               nomes das colunas do Kanban (cadastrados manualmente)
   import-agents.js                importa nome/e-mail em lote (JSON ou stream RSC colado)
   telegram-test.js                  manda uma mensagem de teste pra um chat_id (botão "Testar")
@@ -409,9 +420,12 @@ lib/
   ticket-scan.js           helpers de varredura em lote (extractItems, extractStage,
                           mapWithConcurrency etc.), compartilhados por discover-tickets.js
                           e poll-tickets.js
-  ticket-notify.js          resolve @menção + nome do estágio + chat(s) alvo e manda a
-                            mensagem no Telegram (notifyTicketEvent) — compartilhado por
-                            webhook.js e poll-tickets.js
+  ticket-notify.js          notifyTicketEvent() resolve @menção + nome do estágio + chat(s)
+                            alvo e manda a mensagem no Telegram (usado por webhook.js e
+                            processTicket()); processTicket() compara um ticket com
+                            ticket_state, grava e decide se notifica — usado por
+                            poll-tickets.js E discover-tickets.js (busca manual também
+                            grava/notifica, não só o polling)
   agents.js              busca o @username cadastrado pro criador do ticket
   telegram.js             envio de mensagem via Bot API (um chat ou broadcast pra vários)
   settings.js              leitura/escrita da tabela settings

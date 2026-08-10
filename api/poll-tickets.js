@@ -1,60 +1,17 @@
 import sql from '../lib/db.js';
 import { getValidAccessToken, getClients, getClientTickets } from '../lib/softcs-api.js';
-import { notifyTicketEvent } from '../lib/ticket-notify.js';
+import { processTicket, SEED_FLAG_KEY } from '../lib/ticket-notify.js';
 import { getSetting, setSettings } from '../lib/settings.js';
 import {
   CLIENT_PAGE_LIMIT,
   TICKETS_PER_CLIENT,
   TICKET_CONCURRENCY,
   extractItems,
-  extractStage,
   extractClientName,
   mapWithConcurrency,
 } from '../lib/ticket-scan.js';
 
-const SEED_FLAG_KEY = 'ticket_poll_seeded';
 const CURSOR_KEY = 'ticket_poll_cursor';
-
-// Compara um ticket aberto com o snapshot em ticket_state e decide: sem
-// linha anterior = novo (notifica "criado"); stage_id diferente do salvo =
-// mudou de coluna (notifica "atualizado"); igual = nada. Sempre atualiza
-// title/priority/client_name/client_id (cosméticos, não entram na decisão).
-// Usado tanto pela fase ?phase=known quanto pela descoberta padrão.
-async function processTicket(ticket, { stageLabels, clientName, seeding }) {
-  const stage = extractStage(ticket, stageLabels);
-  const clientId = ticket.mainClientId ?? null;
-
-  const previousRows = await sql`select stage_id, client_name from ticket_state where ticket_id = ${ticket.id}`;
-  const previous = previousRows[0];
-  const resolvedClientName = clientName ?? previous?.client_name ?? null;
-
-  await sql`
-    insert into ticket_state (ticket_id, public_id, stage_id, title, priority, client_name, client_id, created_by_id)
-    values (${ticket.id}, ${ticket.publicId ?? null}, ${stage.id}, ${ticket.title ?? null}, ${ticket.priority ?? null}, ${resolvedClientName}, ${clientId}, ${ticket.createdById ?? null})
-    on conflict (ticket_id) do update set
-      stage_id = excluded.stage_id,
-      title = excluded.title,
-      priority = excluded.priority,
-      client_name = excluded.client_name,
-      client_id = excluded.client_id,
-      updated_at = now()
-  `;
-
-  const kind = !previous ? 'created' : previous.stage_id !== stage.id ? 'updated' : null;
-  if (kind && !seeding) {
-    await notifyTicketEvent({
-      kind,
-      title: ticket.title,
-      priority: ticket.priority,
-      publicId: ticket.publicId,
-      clientName: resolvedClientName,
-      stageId: stage.id,
-      createdById: ticket.createdById,
-    });
-    return true;
-  }
-  return false;
-}
 
 async function getStageLabels() {
   const rows = await sql`select stage_id, label, position from stage_labels`;
@@ -90,8 +47,8 @@ async function handleKnown(seeding) {
     for (const ticket of extractItems(ticketsResponse)) {
       if (ticket.closedAt) continue; // só tickets abertos
       ticketsSeen += 1;
-      const didNotify = await processTicket(ticket, { stageLabels, clientName: extractClientName(ticket), seeding });
-      if (didNotify) notified += 1;
+      const result = await processTicket(ticket, { stageLabels, clientName: extractClientName(ticket), seeding });
+      if (result.notified) notified += 1;
     }
   }
 
@@ -125,12 +82,12 @@ async function handleDiscover(seeding, offset) {
     for (const ticket of extractItems(ticketsResponse)) {
       if (ticket.closedAt) continue; // só tickets abertos
       ticketsSeen += 1;
-      const didNotify = await processTicket(ticket, {
+      const result = await processTicket(ticket, {
         stageLabels,
         clientName: extractClientName(ticket, clientNameById),
         seeding,
       });
-      if (didNotify) notified += 1;
+      if (result.notified) notified += 1;
     }
   }
 

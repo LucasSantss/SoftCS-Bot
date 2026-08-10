@@ -1,13 +1,14 @@
 import sql from '../lib/db.js';
 import { getValidAccessToken, getClients, getClientTickets } from '../lib/softcs-api.js';
 import { requireSession } from '../lib/auth.js';
+import { processTicket, SEED_FLAG_KEY } from '../lib/ticket-notify.js';
+import { getSetting, setSettings } from '../lib/settings.js';
 import {
   CLIENT_PAGE_LIMIT,
   TICKETS_PER_CLIENT,
   TICKET_CONCURRENCY,
   extractItems,
   extractCreator,
-  extractStage,
   extractClientName,
   mapWithConcurrency,
 } from '../lib/ticket-scan.js';
@@ -17,21 +18,32 @@ async function getStageLabels() {
   return Object.fromEntries(rows.map((r) => [r.stage_id, { label: r.label, position: r.position }]));
 }
 
-// Monta o objeto de exibição de um ticket (pro Kanban) + extrai o criador —
-// usado tanto pela fase known quanto pela descoberta ao vivo.
-function buildTicketEntry(ticket, { stageLabels, clientNameById }) {
+// Processa um ticket aberto encontrado ao vivo: grava/compara em
+// ticket_state e notifica se mudou (mesma lógica do polling automático, via
+// processTicket() em lib/ticket-notify.js — a busca manual "Buscar tickets"
+// não é só um preview, ela também alimenta e dispara notificação igual ao
+// polling), e monta o objeto de exibição pro Kanban com o stage já resolvido.
+async function processAndBuildEntry(ticket, { stageLabels, clientNameById, seeding }) {
+  const creator = extractCreator(ticket);
+  const { stage, notified } = await processTicket(ticket, {
+    stageLabels,
+    clientName: extractClientName(ticket, clientNameById),
+    seeding,
+  });
+
   return {
-    ticket: {
+    entry: {
       id: ticket.id,
       publicId: ticket.publicId ?? null,
       title: ticket.title ?? '(sem título)',
       priority: ticket.priority ?? null,
       clientName: extractClientName(ticket, clientNameById),
       createdAt: ticket.createdAt ?? null,
-      createdBy: extractCreator(ticket),
-      stage: extractStage(ticket, stageLabels),
+      createdBy: creator,
+      stage,
     },
-    creator: extractCreator(ticket),
+    creator,
+    notified,
   };
 }
 
@@ -53,11 +65,17 @@ function buildTicketEntry(ticket, { stageLabels, clientNameById }) {
 // (ver nota lá). admin.js chama isso primeiro, antes de começar a loop de
 // descoberta padrão, pra garantir que os tickets já conhecidos aparecem e
 // se atualizam primeiro no Kanban, não só depois de escanear a conta
-// inteira. Não notifica nada (isso é só pra exibição no painel) — quem
-// notifica é sempre o polling.
+// inteira.
+//
+// Tanto a fase known quanto a descoberta padrão gravam em ticket_state e
+// notificam via processTicket() — igual ao polling automático. Assim, um
+// clique manual em "Buscar tickets" também conta como detecção de mudança,
+// não só o polling agendado (importante enquanto o access_token da SoftCS
+// não tiver refresh_token: o polling automático nem sempre roda a tempo).
 async function handleKnown(req, res) {
   await getValidAccessToken();
   const stageLabels = await getStageLabels();
+  const seeding = (await getSetting(SEED_FLAG_KEY)) !== 'true';
 
   const knownClients = await sql`
     select distinct client_id from ticket_state where client_id is not null
@@ -74,14 +92,20 @@ async function handleKnown(req, res) {
   const tickets = [];
   const creatorsById = new Map();
   let hasNames = false;
+  let notified = 0;
 
   for (const ticketsResponse of ticketLists) {
     if (!ticketsResponse) continue;
     for (const ticket of extractItems(ticketsResponse)) {
       if (ticket.closedAt) continue; // só tickets abertos
-      const { ticket: entry, creator } = buildTicketEntry(ticket, { stageLabels, clientNameById: undefined });
+      const { entry, creator, notified: didNotify } = await processAndBuildEntry(ticket, {
+        stageLabels,
+        clientNameById: undefined,
+        seeding,
+      });
       if (creator?.name) hasNames = true;
       if (creator && !creatorsById.has(creator.id)) creatorsById.set(creator.id, creator);
+      if (didNotify) notified += 1;
       tickets.push(entry);
     }
   }
@@ -93,6 +117,7 @@ async function handleKnown(req, res) {
     hasNames,
     hasMoreClients: false,
     nextOffset: null,
+    notified,
     known: true,
   });
 }
@@ -185,6 +210,8 @@ export default async function handler(req, res) {
     // token expirado vira um erro claro em vez de "0 tickets" sem explicação.
     await getValidAccessToken();
 
+    const seeding = (await getSetting(SEED_FLAG_KEY)) !== 'true';
+
     const clientsResponse = await getClients(CLIENT_PAGE_LIMIT, offset);
     const clients = extractItems(clientsResponse);
     const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
@@ -202,16 +229,31 @@ export default async function handler(req, res) {
     const tickets = [];
     const creatorsById = new Map();
     let hasNames = false;
+    let notified = 0;
 
     for (const ticketsResponse of ticketLists) {
       if (!ticketsResponse) continue;
       for (const ticket of extractItems(ticketsResponse)) {
         if (ticket.closedAt) continue; // só tickets abertos
-        const { ticket: entry, creator } = buildTicketEntry(ticket, { stageLabels, clientNameById });
+        const { entry, creator, notified: didNotify } = await processAndBuildEntry(ticket, {
+          stageLabels,
+          clientNameById,
+          seeding,
+        });
         if (creator?.name) hasNames = true;
         if (creator && !creatorsById.has(creator.id)) creatorsById.set(creator.id, creator);
+        if (didNotify) notified += 1;
         tickets.push(entry);
       }
+    }
+
+    const hasMoreClients = Boolean(clientPagination?.hasMore);
+
+    // Se uma varredura manual completar uma volta inteira enquanto ainda em
+    // modo seed, conta como a primeira varredura completa também — mesma
+    // regra do polling automático (ver api/poll-tickets.js).
+    if (seeding && !hasMoreClients) {
+      await setSettings({ [SEED_FLAG_KEY]: 'true' });
     }
 
     // Renova o token de novo aqui no fim (além do início) — se a varredura
@@ -226,8 +268,9 @@ export default async function handler(req, res) {
       creators: [...creatorsById.values()],
       clientsScanned: clients.length,
       hasNames,
-      hasMoreClients: Boolean(clientPagination?.hasMore),
+      hasMoreClients,
       nextOffset: clientPagination?.nextOffset ?? offset + clients.length,
+      notified,
     });
   } catch (error) {
     console.error('Erro buscando tickets na SoftCS:', error);
