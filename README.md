@@ -159,10 +159,14 @@ isso sobrevive a reload e só muda quando o polling realmente detectar algo dife
 cada vez que a página é aberta. O botão **"Buscar todos os tickets abertos"** continua
 disponível pra fazer uma varredura **ao vivo** contra a SoftCS agora mesmo (sem esperar o
 próximo ciclo de 15min) — útil pra conferir se algum ticket está na coluna errada e
-descobrir se é erro do nosso lado ou coisa que ainda não chegou no snapshot salvo. Pra bater
-exatamente com o Kanban real da SoftCS (mesmo nome, mesma ordem das colunas), clique em cada
-nome de coluna e defina nome + posição (ver seção acima) — vale tanto pro board salvo quanto
-pro ao vivo, já que os dois usam a mesma tabela `stage_labels`.
+descobrir se é erro do nosso lado ou coisa que ainda não chegou no snapshot salvo. Assim como
+o polling (ver "Detecção via polling"), essa busca ao vivo também reconfirma primeiro os
+clientes donos de tickets que já estão em `ticket_state` (`?phase=known`, rápido) antes de
+seguir descobrindo o resto da conta em lotes — o botão manual usa a mesma prioridade que o
+polling automático, não só a ordem que a SoftCS devolve. Pra bater exatamente com o Kanban
+real da SoftCS (mesmo nome, mesma ordem das colunas), clique em cada nome de coluna e defina
+nome + posição (ver seção acima) — vale tanto pro board salvo quanto pro ao vivo, já que os
+dois usam a mesma tabela `stage_labels`.
 
 > Contas grandes têm milhares de clientes (testei numa conta real com mais de 2000) e a
 > SoftCS só lista tickets por cliente — não existe um `/tickets` geral (retorna 404) nem um
@@ -383,10 +387,12 @@ api/
   softcs-oauth.js            conexão OAuth2 da SoftCS: start (botão "Conectar") e callback —
                             um arquivo só cobrindo /api/oauth-start e /api/oauth-callback
                             via rewrite, mesma razão do auth.js
-  discover-tickets.js         dois modos: padrão escaneia um lote de clientes ao vivo
+  discover-tickets.js         três modos: padrão escaneia um lote de clientes ao vivo
                               (?offset=) e devolve os tickets abertos deles (botão "Buscar
-                              tickets"); ?source=stored lê o snapshot de ticket_state (o que
-                              o painel carrega sozinho ao abrir a página)
+                              tickets"); ?phase=known reconfirma ao vivo só os clientes
+                              já em ticket_state primeiro (mesma prioridade do polling);
+                              ?source=stored lê o snapshot de ticket_state (o que o painel
+                              carrega sozinho ao abrir a página)
   stage-labels.js               nomes das colunas do Kanban (cadastrados manualmente)
   import-agents.js                importa nome/e-mail em lote (JSON ou stream RSC colado)
   telegram-test.js                  manda uma mensagem de teste pra um chat_id (botão "Testar")

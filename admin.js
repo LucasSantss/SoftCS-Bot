@@ -492,13 +492,49 @@ async function runDiscoverLoop() {
   stopRequested = false;
 
   kanbanBoard.innerHTML = "";
-  const allTickets = [];
+  // Map por id, não array: a fase known e a descoberta padrão podem achar o
+  // mesmo ticket de novo (a descoberta não pula clientes já conhecidos) —
+  // o Map evita duplicar cartão no Kanban, a entrada mais recente vence.
+  const ticketsById = new Map();
   const allCreatorsById = new Map();
   let clientsScanned = 0;
   let offset = 0;
   let hasNames = false;
 
+  function mergeAndRender(data) {
+    for (const ticket of data.tickets) ticketsById.set(ticket.id, ticket);
+    for (const creator of data.creators) {
+      if (!allCreatorsById.has(creator.id)) allCreatorsById.set(creator.id, creator);
+    }
+    if (data.clientsScanned) clientsScanned += data.clientsScanned;
+    if (data.hasNames) hasNames = true;
+
+    lastCreators = [...allCreatorsById.values()];
+    lastTickets = [...ticketsById.values()];
+    renderKanban(lastTickets);
+    renderCreators(lastCreators);
+    updateDiscoverProgress({
+      ticketCount: lastTickets.length,
+      creatorCount: lastCreators.length,
+      clientsScanned,
+      hasNames,
+      done: false,
+    });
+  }
+
   try {
+    // Fase 1: reconfirma ao vivo os tickets que já estão salvos (poucos
+    // clientes, rápido) — assim eles aparecem e se atualizam primeiro no
+    // Kanban, mesmo que a descoberta abaixo demore ou seja interrompida.
+    try {
+      const known = await api("/api/discover-tickets?phase=known");
+      mergeAndRender(known);
+    } catch (err) {
+      // Não trava a busca inteira por causa disso — só segue pra descoberta.
+      setStatus(discoverStatus, `Aviso ao reconfirmar tickets conhecidos: ${err.message}`, true);
+    }
+
+    // Fase 2: descoberta ao vivo pelo resto da conta, em lotes.
     while (!stopRequested) {
       let data;
       try {
@@ -508,37 +544,20 @@ async function runDiscoverLoop() {
         // A SoftCS limita requisições por IP a cada poucos minutos — espera o
         // tempo pedido e tenta o mesmo lote de novo, sem perder o progresso.
         for (let s = err.retryAfterSeconds; s > 0 && !stopRequested; s--) {
-          setStatus(discoverStatus, `Limite da SoftCS atingido — retomando em ${s}s… (${allTickets.length} ticket(s) até agora)`, true);
+          setStatus(discoverStatus, `Limite da SoftCS atingido — retomando em ${s}s… (${ticketsById.size} ticket(s) até agora)`, true);
           await sleep(1000);
         }
         continue;
       }
 
-      allTickets.push(...data.tickets);
-      for (const creator of data.creators) {
-        if (!allCreatorsById.has(creator.id)) allCreatorsById.set(creator.id, creator);
-      }
-      clientsScanned += data.clientsScanned;
-      if (data.hasNames) hasNames = true;
-
-      lastCreators = [...allCreatorsById.values()];
-      lastTickets = allTickets;
-      renderKanban(allTickets);
-      renderCreators(lastCreators);
-      updateDiscoverProgress({
-        ticketCount: allTickets.length,
-        creatorCount: lastCreators.length,
-        clientsScanned,
-        hasNames,
-        done: false,
-      });
+      mergeAndRender(data);
 
       if (!data.hasMoreClients) break;
       offset = data.nextOffset;
     }
 
     updateDiscoverProgress({
-      ticketCount: allTickets.length,
+      ticketCount: ticketsById.size,
       creatorCount: lastCreators.length,
       clientsScanned,
       hasNames,

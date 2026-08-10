@@ -12,6 +12,29 @@ import {
   mapWithConcurrency,
 } from '../lib/ticket-scan.js';
 
+async function getStageLabels() {
+  const rows = await sql`select stage_id, label, position from stage_labels`;
+  return Object.fromEntries(rows.map((r) => [r.stage_id, { label: r.label, position: r.position }]));
+}
+
+// Monta o objeto de exibição de um ticket (pro Kanban) + extrai o criador —
+// usado tanto pela fase known quanto pela descoberta ao vivo.
+function buildTicketEntry(ticket, { stageLabels, clientNameById }) {
+  return {
+    ticket: {
+      id: ticket.id,
+      publicId: ticket.publicId ?? null,
+      title: ticket.title ?? '(sem título)',
+      priority: ticket.priority ?? null,
+      clientName: extractClientName(ticket, clientNameById),
+      createdAt: ticket.createdAt ?? null,
+      createdBy: extractCreator(ticket),
+      stage: extractStage(ticket, stageLabels),
+    },
+    creator: extractCreator(ticket),
+  };
+}
+
 // A SoftCS não tem um "listar tickets de todos os clientes" — o endpoint é
 // sempre /clients/{clientId}/tickets. Contas grandes têm milhares de
 // clientes (testado: uma conta real tinha mais de 2000), então cada chamada
@@ -23,9 +46,57 @@ import {
 // api/poll-tickets.js) em vez de escanear a SoftCS ao vivo — é o que o
 // painel carrega sozinho ao abrir a página, pra o board ficar disponível na
 // hora e só mudar quando o polling realmente detectar algo, sem precisar
-// clicar em "Buscar tickets" toda vez que a página recarrega. O botão
-// "Buscar tickets" continua fazendo a varredura ao vivo (modo padrão,
-// sem esse parâmetro) — útil pra conferir contra a SoftCS na hora.
+// clicar em "Buscar tickets" toda vez que a página recarrega.
+//
+// ?phase=known reconfirma AO VIVO só os clientes donos de tickets que já
+// estão em ticket_state — mesma prioridade que api/poll-tickets.js usa
+// (ver nota lá). admin.js chama isso primeiro, antes de começar a loop de
+// descoberta padrão, pra garantir que os tickets já conhecidos aparecem e
+// se atualizam primeiro no Kanban, não só depois de escanear a conta
+// inteira. Não notifica nada (isso é só pra exibição no painel) — quem
+// notifica é sempre o polling.
+async function handleKnown(req, res) {
+  await getValidAccessToken();
+  const stageLabels = await getStageLabels();
+
+  const knownClients = await sql`
+    select distinct client_id from ticket_state where client_id is not null
+  `;
+  const clientIds = knownClients.map((r) => r.client_id);
+
+  const ticketLists = await mapWithConcurrency(clientIds, TICKET_CONCURRENCY, (clientId) =>
+    getClientTickets(clientId, TICKETS_PER_CLIENT, 0).catch((err) => {
+      console.error(`Falha ao reconfirmar cliente conhecido ${clientId}:`, err.message);
+      return null;
+    })
+  );
+
+  const tickets = [];
+  const creatorsById = new Map();
+  let hasNames = false;
+
+  for (const ticketsResponse of ticketLists) {
+    if (!ticketsResponse) continue;
+    for (const ticket of extractItems(ticketsResponse)) {
+      if (ticket.closedAt) continue; // só tickets abertos
+      const { ticket: entry, creator } = buildTicketEntry(ticket, { stageLabels, clientNameById: undefined });
+      if (creator?.name) hasNames = true;
+      if (creator && !creatorsById.has(creator.id)) creatorsById.set(creator.id, creator);
+      tickets.push(entry);
+    }
+  }
+
+  res.status(200).json({
+    tickets,
+    creators: [...creatorsById.values()],
+    clientsScanned: clientIds.length,
+    hasNames,
+    hasMoreClients: false,
+    nextOffset: null,
+    known: true,
+  });
+}
+
 async function handleStored(req, res) {
   const rows = await sql`
     select
@@ -93,6 +164,20 @@ export default async function handler(req, res) {
     return;
   }
 
+  if (req.query.phase === 'known') {
+    try {
+      await handleKnown(req, res);
+    } catch (error) {
+      console.error('Erro reconfirmando tickets conhecidos:', error);
+      if (error.rateLimited) {
+        res.status(429).json({ error: error.message, retryAfterSeconds: error.retryAfterSeconds });
+        return;
+      }
+      res.status(500).json({ error: error.message });
+    }
+    return;
+  }
+
   const offset = Number.parseInt(req.query?.offset, 10) || 0;
 
   try {
@@ -105,8 +190,7 @@ export default async function handler(req, res) {
     const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
     const clientPagination = clientsResponse?.pagination;
 
-    const stageLabelRows = await sql`select stage_id, label, position from stage_labels`;
-    const stageLabels = Object.fromEntries(stageLabelRows.map((r) => [r.stage_id, { label: r.label, position: r.position }]));
+    const stageLabels = await getStageLabels();
 
     const ticketLists = await mapWithConcurrency(clients, TICKET_CONCURRENCY, (client) =>
       getClientTickets(client.id, TICKETS_PER_CLIENT, 0).catch((err) => {
@@ -121,24 +205,12 @@ export default async function handler(req, res) {
 
     for (const ticketsResponse of ticketLists) {
       if (!ticketsResponse) continue;
-      const items = extractItems(ticketsResponse);
-      for (const ticket of items) {
+      for (const ticket of extractItems(ticketsResponse)) {
         if (ticket.closedAt) continue; // só tickets abertos
-
-        const creator = extractCreator(ticket);
+        const { ticket: entry, creator } = buildTicketEntry(ticket, { stageLabels, clientNameById });
         if (creator?.name) hasNames = true;
         if (creator && !creatorsById.has(creator.id)) creatorsById.set(creator.id, creator);
-
-        tickets.push({
-          id: ticket.id,
-          publicId: ticket.publicId ?? null,
-          title: ticket.title ?? '(sem título)',
-          priority: ticket.priority ?? null,
-          clientName: extractClientName(ticket, clientNameById),
-          createdAt: ticket.createdAt ?? null,
-          createdBy: creator,
-          stage: extractStage(ticket, stageLabels),
-        });
+        tickets.push(entry);
       }
     }
 
