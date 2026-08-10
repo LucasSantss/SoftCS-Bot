@@ -67,21 +67,31 @@ a arquitetura de mensagem/roteamento (`lib/ticket-notify.js`) já é compartilha
 minutos, autenticado por um header `Authorization: Bearer <CRON_SECRET>` (mesmo valor
 cadastrado como env var na Vercel e como secret `CRON_SECRET` no repositório do GitHub — ver
 Setup). Não roda como Cron Job da própria Vercel porque **o plano Hobby limita cron a 1x por
-dia** — inviável pra isso.
+dia** — inviável pra isso. Duas fases, nessa ordem, como dois steps separados no workflow:
 
-Cada chamada escaneia **um lote de clientes** (mesmo padrão de `api/discover-tickets.js`,
-via `lib/ticket-scan.js`, compartilhado entre os dois); o workflow do GitHub Actions encadeia
-as chamadas em loop (bash + `jq`) até `hasMoreClients` virar `false`, com o mesmo backoff de
-rate limit (`retryAfterSeconds`) que o painel já usava. **O offset não é passado pelo
-workflow** — o servidor guarda sozinho onde parou (`ticket_poll_cursor` na tabela
-`settings`) e cada chamada nova continua dali, mesmo que seja de uma execução diferente do
-GitHub Actions. Isso importa porque, sem `refresh_token` (ver aviso abaixo), o
-`access_token` pode expirar no meio de uma varredura de conta grande — sem esse cursor
-persistido, cada ciclo de 15min recomeçaria do zero e nunca chegaria nos clientes "do fim da
-fila", deixando mudanças neles pra sempre invisíveis. Com o cursor, o progresso acumula
-entre execuções (mesmo as que falham no meio) até completar uma volta inteira pela conta, e
-então reinicia do zero pro próximo ciclo. `?offset=` na query ainda funciona como override
-manual pra debug. Cada ticket aberto encontrado é comparado com a tabela `ticket_state`:
+**1) `?phase=known`** — reconfirma só os clientes donos de tickets que **já estão** em
+`ticket_state` (uma chamada só, sem paginação, já que são poucos clientes — um por ticket já
+conhecido, não a conta inteira). Roda primeiro e sempre completa, então a movimentação de
+tickets já conhecidos é detectada de forma confiável todo ciclo de 15min, mesmo que a fase 2
+não termine a tempo do token expirar.
+
+**2) Descoberta (padrão, sem `phase`)** — escaneia **um lote de clientes** (mesmo padrão de
+`api/discover-tickets.js`, via `lib/ticket-scan.js`, compartilhado entre os dois) pra achar
+tickets novos em clientes ainda não vistos; o workflow encadeia as chamadas em loop (bash +
+`jq`) até `hasMoreClients` virar `false`, com o mesmo backoff de rate limit
+(`retryAfterSeconds`) que o painel já usava. **O offset não é passado pelo workflow** — o
+servidor guarda sozinho onde parou (`ticket_poll_cursor` na tabela `settings`) e cada chamada
+nova continua dali, mesmo que seja de uma execução diferente do GitHub Actions. Isso importa
+porque, sem `refresh_token` (ver aviso abaixo), o `access_token` pode expirar no meio de uma
+varredura de conta grande — sem esse cursor persistido, cada ciclo de 15min recomeçaria do
+zero e nunca chegaria nos clientes "do fim da fila", deixando tickets novos neles pra sempre
+não-descobertos (a fase 1 não ajuda aqui, já que só sabe de tickets que já foram descobertos
+antes). Com o cursor, o progresso acumula entre execuções (mesmo as que falham no meio) até
+completar uma volta inteira pela conta, e então reinicia do zero pro próximo ciclo.
+`?offset=` na query ainda funciona como override manual pra debug.
+
+As duas fases usam a mesma lógica de comparação (`processTicket()` em `api/poll-tickets.js`):
+cada ticket aberto encontrado é comparado com a tabela `ticket_state`:
 
 - **Sem linha anterior** → ticket novo → notifica "criado" e grava o estado.
 - **`stage_id` diferente do salvo** → ticket mudou de coluna → notifica "atualizado" e
@@ -347,17 +357,21 @@ middleware.js             Edge Middleware: sem cookie de sessão, redireciona / 
 admin.css               visual baseado no design system do CodeRise Hub
 admin.js                 lógica das abas (fetch nas APIs abaixo); redireciona pro login em 401
 .github/workflows/
-  poll-tickets.yml     roda api/poll-tickets.js a cada 15min em loop de lotes (bash + jq),
+  poll-tickets.yml     roda api/poll-tickets.js a cada 15min: primeiro ?phase=known (reconfirma
+                       tickets já conhecidos), depois a descoberta em loop de lotes (bash + jq)
                        com backoff se a SoftCS responder 429 — ver "Detecção via polling"
 api/
   webhook.js            código morto por enquanto: endpoint que a SoftCS chamaria a cada
                         evento de ticket, mas não há webhook disponível na plataforma (ver
                         "Por que polling, não webhook"). Não exige sessão — seria chamado
                         pela SoftCS, não por um navegador logado.
-  poll-tickets.js         chamado pelo workflow do GitHub Actions: varre um lote de clientes
-                          (mesmo padrão do discover-tickets.js), compara cada ticket aberto
-                          com ticket_state e notifica criação/mudança de estágio. Autenticado
-                          por CRON_SECRET (header Authorization: Bearer), não por sessão.
+  poll-tickets.js         chamado pelo workflow do GitHub Actions, duas fases: ?phase=known
+                          reconfirma só os clientes de tickets já em ticket_state (rápido,
+                          sempre completo); padrão descobre tickets novos varrendo a conta em
+                          lotes (mesmo padrão do discover-tickets.js), retomando de
+                          ticket_poll_cursor. As duas usam processTicket() pra comparar com
+                          ticket_state e notificar criação/mudança de estágio. Autenticado por
+                          CRON_SECRET (header Authorization: Bearer), não por sessão.
   auth.js                 login: start (redireciona pro Google), callback (troca code por
                           token, checa domínio + allowlist, cria sessão), logout, me (quem
                           está logado) e users (CRUD da allowlist, só master) — um arquivo
@@ -405,7 +419,8 @@ sql/
                          Kanban), allowed_users (allowlist de login),
                          sessions (login do painel), google_oauth_state, ticket_state
                          (snapshot de cada ticket aberto — estágio, título, prioridade,
-                         cliente — usado pelo polling pra notificar E pelo painel pra
-                         mostrar o Kanban salvo sem precisar de uma varredura ao vivo)
+                         cliente e client_id — usado pelo polling pra notificar E pelo
+                         painel pra mostrar o Kanban salvo sem precisar de uma varredura ao
+                         vivo; client_id também alimenta a fase ?phase=known do polling)
 dev-server.js          servidor local leve pra `npm run dev` (sem precisar de vercel CLI)
 ```

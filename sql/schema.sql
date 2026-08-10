@@ -134,9 +134,15 @@ create table if not exists ticket_state (
   title text,
   priority text,
   client_name text,
+  client_id text,
   created_by_id text,
   updated_at timestamptz not null default now()
 );
 
 alter table ticket_state add column if not exists priority text;
 alter table ticket_state add column if not exists client_name text;
+-- client_id: precisa pra api/poll-tickets.js?phase=known re-consultar
+-- diretamente o cliente de cada ticket já conhecido (fase prioritária, ver
+-- nota em api/poll-tickets.js), sem depender de reencontrar o cliente numa
+-- varredura completa da conta.
+alter table ticket_state add column if not exists client_id text;

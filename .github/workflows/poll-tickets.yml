@@ -2,9 +2,9 @@ name: Poll SoftCS tickets
 
 # A SoftCS não expõe webhook de ticket (ver api/webhook.js), então quem
 # detecta ticket novo/movido é essa varredura periódica, chamando
-# /api/poll-tickets em lotes até acabar a conta inteira. Roda por aqui (não
-# como Cron Job da própria Vercel) porque o plano Hobby da Vercel só permite
-# cron 1x/dia — GitHub Actions permite a cada 15min de graça.
+# /api/poll-tickets. Roda por aqui (não como Cron Job da própria Vercel)
+# porque o plano Hobby da Vercel só permite cron 1x/dia — GitHub Actions
+# permite a cada 15min de graça.
 on:
   schedule:
     - cron: '*/15 * * * *'
@@ -14,7 +14,24 @@ jobs:
   poll:
     runs-on: ubuntu-latest
     steps:
-      - name: Varrer tickets em lotes até acabar a conta
+      - name: Reconfirmar tickets já conhecidos primeiro
+        env:
+          POLL_URL: https://softcs-bot.vercel.app/api/poll-tickets
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -e
+          # Fase rápida e sempre completa (poucos clientes, um por ticket já
+          # em ticket_state) — garante que a movimentação de tickets já
+          # conhecidos é detectada todo ciclo, mesmo que a fase de descoberta
+          # abaixo não termine a tempo do token expirar.
+          http_code=$(curl -s -o /tmp/known.json -w "%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$POLL_URL?phase=known")
+          echo "HTTP $http_code:"
+          cat /tmp/known.json
+          echo
+
+      - name: Descobrir tickets novos em lotes até acabar a conta
         env:
           POLL_URL: https://softcs-bot.vercel.app/api/poll-tickets
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
