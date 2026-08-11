@@ -264,7 +264,7 @@ o conteúdo de [sql/schema.sql](sql/schema.sql) (SQL Editor do Neon ou `psql`).
 
 ### 2. Variáveis de ambiente
 
-Só estas cinco, tanto no `.env` local quanto no painel do projeto na Vercel:
+Essas cinco são obrigatórias, tanto no `.env` local quanto no painel do projeto na Vercel:
 
 - `DATABASE_URL` — connection string do Neon
 - `TELEGRAM_BOT_TOKEN` — token do bot, criado com [@BotFather](https://t.me/BotFather)
@@ -275,6 +275,15 @@ Só estas cinco, tanto no `.env` local quanto no painel do projeto na Vercel:
   ```bash
   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
   ```
+
+E mais uma **opcional, mas recomendada**:
+
+- `GITHUB_DISPATCH_TOKEN` — personal access token do GitHub, usado só pra disparar os
+  workflows de polling na hora assim que você clica em **Conectar**, em vez de esperar o
+  próximo tick do cron (ver passo 6.1). Sem `refresh_token` (ver aviso mais abaixo), cada
+  reconexão só rende ~15min de token válido, e não vale desperdiçar parte disso esperando o
+  relógio do GitHub Actions. Sem essa variável, tudo continua funcionando normal, só sem
+  esse empurrão — o polling agendado ainda roda nos horários de sempre (a cada 5/15min).
 
 ### 3. Deploy
 
@@ -358,6 +367,24 @@ Na primeira execução depois de configurado, o polling entra em **modo seed** a
 (grava o estado de todos os tickets abertos sem notificar ninguém — senão inundaria os
 chats) e só passa a notificar normalmente a partir da segunda varredura completa. Isso é
 esperado, não é bug.
+
+#### 6.1. Disparo automático ao reconectar (opcional, mas recomendado)
+
+Enquanto `refresh_token` não funcionar (ver aviso mais abaixo), cada reconexão manual só
+rende ~15min de token válido — e esperar o próximo tick do cron (até 5min pro known, até
+15min pra descoberta) pode desperdiçar boa parte dessa janela. `api/softcs-oauth.js` dispara
+os dois workflows na hora, assim que o token é salvo, via `lib/github-actions.js`:
+
+1. No GitHub, vá em **Settings (da sua conta) > Developer settings > Personal access tokens
+   > Fine-grained tokens > Generate new token**.
+2. Em **Repository access**, escolha **Only select repositories** e selecione só o
+   `SoftCS-Bot`.
+3. Em **Permissions > Repository permissions**, dê **Actions: Read and write**.
+4. Gere o token e cadastre como env var `GITHUB_DISPATCH_TOKEN` na Vercel (e no `.env`
+   local, se for testar isso localmente) — faça um redeploy depois.
+
+Sem esse token configurado, a conexão continua funcionando normal, só sem esse empurrão —
+o polling agendado ainda roda nos horários de sempre.
 
 ## Rodando localmente
 
@@ -451,6 +478,9 @@ lib/
                             maybeRenewTokenAlternating, que só tenta de fato uma finalização
                             de ciclo sim, outra não) + chamadas à API da SoftCS (getClients,
                             getClientTickets)
+  github-actions.js          triggerPollWorkflows() dispara poll-known.yml e
+                            poll-tickets.yml na hora via API do GitHub — chamado logo depois
+                            de uma reconexão OAuth bem-sucedida (GITHUB_DISPATCH_TOKEN)
 sql/
   schema.sql            tabelas: agent_mapping (softcs_user_id, telegram_username opcional,
                          display_name, email), processed_webhook_events, telegram_chats,

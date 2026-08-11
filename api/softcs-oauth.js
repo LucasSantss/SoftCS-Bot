@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import sql from '../lib/db.js';
 import { getSetting } from '../lib/settings.js';
 import { getSessionUser } from '../lib/auth.js';
+import { triggerPollWorkflows } from '../lib/github-actions.js';
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 
@@ -141,6 +142,13 @@ async function handleCallback(req, res) {
       expires_at = excluded.expires_at,
       updated_at = now()
   `;
+
+  // Dispara os workflows de polling na hora em vez de esperar o próximo
+  // tick do cron — sem refresh_token, essa reconexão manual só rende ~15min
+  // de token válido, e não vale desperdiçar parte disso esperando o
+  // relógio do GitHub Actions (ver lib/github-actions.js). Não trava o
+  // redirect se falhar (ex: GITHUB_DISPATCH_TOKEN não configurado ainda).
+  await triggerPollWorkflows();
 
   // "Conectar" navega a própria aba pra cá (ver admin.js — popup foi
   // tentado e abandonado: bloqueador de popup e Cross-Origin-Opener-Policy
