@@ -28,3 +28,12 @@ jobs:
           echo "HTTP $http_code:"
           cat /tmp/known.json
           echo
+
+          # Sem isso o job aparecia "sucesso" (verde) mesmo quando a chamada
+          # de dentro falhava (ex: token expirado) — o curl em si não falha,
+          # só o servidor responde com erro, e sem checar o código o bash
+          # não tinha motivo pra sair com status != 0.
+          if [ "$http_code" != "200" ]; then
+            echo "Erro (HTTP $http_code) — marcando esse run como falho."
+            exit 1
+          fi
