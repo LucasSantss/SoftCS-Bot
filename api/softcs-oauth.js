@@ -98,29 +98,30 @@ async function handleCallback(req, res) {
     return;
   }
 
-  const [redirectUri, clientId, clientSecret] = await Promise.all([
+  const [redirectUri, clientId] = await Promise.all([
     getSetting('softcs_redirect_uri'),
     getSetting('softcs_client_id'),
-    getSetting('softcs_client_secret'),
   ]);
 
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
+    client_id: clientId,
     code,
     redirect_uri: redirectUri,
     code_verifier: row.code_verifier,
   });
 
-  // O token endpoint da SoftCS só aceita client_secret_basic (HTTP Basic Auth),
-  // não client_id/client_secret no corpo — confirmado no .well-known/openid-configuration.
-  const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-
+  // Nada de Authorization: Basic (client_secret_basic) nem client_secret em
+  // lugar nenhum — testado ao vivo, byte a byte, direto no Postman sem
+  // nenhum código nosso no meio: é isso que faz a SoftCS finalmente
+  // devolver refresh_token (client_secret_basic sempre resultava em scope
+  // sem offline_access e sem refresh_token, mesmo pedindo certinho — parece
+  // que essa aplicação é tratada como cliente público, PKCE só, do lado
+  // deles). A doc oficial diz client_secret_basic, mas o comportamento real
+  // é outro — confiamos no que foi observado, não no que está escrito.
   const response = await fetch('https://admin.softcs.com.br/api/public/v1/oauth/token', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: `Basic ${basicAuth}`,
-    },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
   });
 

@@ -219,22 +219,24 @@ especificamente pro(s) chat(s) onde ele é membro (é o que faz a `@menção` fu
 verdade: Telegram só notifica quem está no grupo). Sem nenhum membro cadastrado pra aquele
 criador, a notificação cai pra todos os chats ativos.
 
-> ⚠️ **Pendência séria em aberto**: mesmo com o escopo `offline_access` habilitado
-> (Identidade > "Continuar conectada mesmo após sair") e reconectado várias vezes, a SoftCS
-> nunca devolveu um `refresh_token` até agora — só `access_token`, que dura ~1h. Isso afeta
-> o polling de verdade: sem reconectar manualmente a cada ~1h, `api/poll-tickets.js` fica
-> incapaz de escanear (confirmado ao vivo: 11h+ sem nenhuma atualização em `ticket_state`
-> por falta de reconexão), então nenhuma notificação sai nesse período. `api/discover-tickets.js`
-> e `api/poll-tickets.js` tentam renovar o token no início de cada chamada, e no fim de cada
-> finalização chamam `maybeRenewTokenAlternating()` (`lib/softcs-api.js`) — que só tenta de
-> fato uma finalização sim, outra não (o estado do intercalamento fica salvo em `settings`).
-> Nenhuma dessas tentativas ajuda em nada sem um `refresh_token` pra renovar de verdade — a
-> tentativa simplesmente falha rápido e sem custo (só loga o erro). Se isso não
-> se resolver sozinho, vale abrir chamado com o suporte da SoftCS perguntando especificamente
-> por que a resposta do token nunca inclui `refresh_token` mesmo com `offline_access`
-> concedido — pode ser bug da plataforma ou alguma habilitação adicional do lado deles.
-> Enquanto isso, "Buscar tickets" avisa "token expirou" quando isso acontece, e é só clicar
-> em **Conectar** de novo.
+> ✅ **Resolvido — `refresh_token` funciona, mas não do jeito que a documentação da SoftCS
+> descreve.** Por muito tempo o `access_token` (dura 15min — `expires_in: 900`) nunca vinha
+> acompanhado de `refresh_token`, mesmo com `offline_access` habilitado e pedido certinho no
+> `scope`. Isolamos a causa testando byte a byte no Postman, sem nenhum código nosso no
+> meio: com `Authorization: Basic` (`client_secret_basic`, o método que a documentação e o
+> `.well-known/openid-configuration` dizem ser obrigatório), o `scope` da resposta **nunca**
+> incluía `offline_access` e `refresh_token` nunca vinha — nenhum erro, só descartava o
+> escopo silenciosamente. Trocando pra **`client_id` solto no corpo do POST, sem
+> `Authorization` nenhum e sem `client_secret` em lugar nenhum** (autenticação `none`, cliente
+> público — só o PKCE garante a segurança), `refresh_token` passou a vir normalmente, tanto
+> na troca do `code` (`authorization_code`) quanto na renovação (`refresh_token`, que também
+> emite um `refresh_token` novo a cada uso — rotação padrão, já tratada no código). Ou seja:
+> essa aplicação é tratada como **cliente público** do lado da SoftCS, não confidencial, e a
+> doc deles está desatualizada/errada nesse ponto — `client_secret_basic` com Basic Auth
+> simplesmente não funciona como documentado. `api/softcs-oauth.js` e `lib/softcs-api.js` já
+> foram atualizados pra esse padrão. `getValidAccessToken()` renova sozinho quando o
+> `access_token` está perto de expirar, e `maybeRenewTokenAlternating()` (chamado no fim de
+> cada ciclo do polling) agora tem efeito de verdade — não é mais um no-op.
 
 > Nota técnica: a API pagina como `{ data: [...], pagination: { hasMore, nextOffset } }`,
 > não `{ items: [...] }` como a documentação sugere — `extractItems()` em
