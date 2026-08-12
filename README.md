@@ -82,24 +82,26 @@ dia** — inviável pra isso.
 > imediato ao reconectar — ver 6.1) e o cron externo assumiu o papel de disparar de verdade no
 > intervalo configurado.
 
-**1) `?phase=known`, a cada 5min** — reconfirma só os clientes donos de tickets que **já
+**1) `?phase=known`, a cada 2min** — reconfirma só os clientes donos de tickets que **já
 estão** em `ticket_state` (uma chamada só, sem paginação, já que são poucos clientes — um por
 ticket já conhecido, não a conta inteira). Roda separado da descoberta, então a movimentação
-de tickets já conhecidos é detectada de forma confiável a cada 5min, mesmo que a descoberta
+de tickets já conhecidos é detectada de forma confiável a cada 2min, mesmo que a descoberta
 abaixo não termine a tempo do token expirar.
 
-**2) Descoberta (padrão, sem `phase`), a cada 15min** — escaneia **um lote de clientes** por
+**2) Descoberta (padrão, sem `phase`), a cada 10min** — escaneia **um lote de clientes** por
 chamada (mesmo padrão de `api/discover-tickets.js`, via `lib/ticket-scan.js`, compartilhado
 entre os dois) pra achar tickets novos em clientes ainda não vistos. Ao contrário da fase 1,
 uma chamada só não dá conta da conta inteira (pode ter milhares de clientes) — o cron externo
 só dispara a chamada, sem saber de `hasMoreClients`; **o servidor guarda sozinho onde parou**
-(`ticket_poll_cursor` na tabela `settings`) e cada chamada nova (a cada 15min) continua dali,
+(`ticket_poll_cursor` na tabela `settings`) e cada chamada nova (a cada 10min) continua dali,
 avançando um lote por vez até completar uma volta inteira pela conta, e então reinicia do zero
 pro próximo ciclo. Isso importa porque, mesmo sem depender mais de token expirando no meio
 (agora que `refresh_token` funciona — ver seção OAuth), uma conta grande ainda leva vários
-ciclos de 15min pra escanear por completo; sem esse cursor persistido, cada chamada
+ciclos de 10min pra escanear por completo; sem esse cursor persistido, cada chamada
 recomeçaria do zero e nunca chegaria nos clientes "do fim da fila". `?offset=` na query ainda
-funciona como override manual pra debug.
+funciona como override manual pra debug. (Os intervalos exatos — 2min/10min — são
+configurados no próprio cron-job.org, não no código; ajustável a qualquer momento por lá sem
+precisar de deploy.)
 
 As duas fases usam a mesma lógica de comparação (`processTicket()` em `lib/ticket-notify.js`,
 compartilhado também com `api/discover-tickets.js` — ver seção do Painel): cada ticket
@@ -117,8 +119,8 @@ aberto encontrado é comparado com a tabela `ticket_state`:
 - Ticket fechado simplesmente some das varreduras (só listamos abertos); a linha em
   `ticket_state` fica órfã. Se reabrir depois **no mesmo estágio**, a mudança não é
   detectada (caso raro, não vale a complexidade extra agora).
-- **Atraso de até ~15 minutos** entre a mudança acontecer na SoftCS e a mensagem chegar no
-  Telegram — não é tempo real como um webhook seria.
+- **Atraso de até ~10 minutos** (2min pra tickets já conhecidos) entre a mudança acontecer na
+  SoftCS e a mensagem chegar no Telegram — não é tempo real como um webhook seria.
 - **Modo seed**: na primeiríssima varredura depois de configurado, `ticket_state` está
   vazio — sem tratamento especial, TODOS os tickets abertos da conta disparariam "criado"
   de uma vez, inundando os chats. Enquanto a flag `ticket_poll_seeded` (tabela `settings`)
@@ -167,12 +169,12 @@ Configurações), não da API pública. Pra contornar isso:
 
 **Aba Tickets**: conecta a aplicação OAuth2 (Client ID/Secret/Redirect URI). O Kanban
 **carrega sozinho ao abrir a página**, lendo o snapshot salvo em `ticket_state` (a mesma
-tabela mantida pelo polling a cada 15min — ver "Detecção via polling") via
+tabela mantida pelo polling — ver "Detecção via polling") via
 `GET /api/discover-tickets?source=stored`, sem chamar a SoftCS nem gastar rate limit — por
 isso sobrevive a reload e só muda quando o polling realmente detectar algo diferente, não a
 cada vez que a página é aberta. O botão **"Buscar todos os tickets abertos"** continua
 disponível pra fazer uma varredura **ao vivo** contra a SoftCS agora mesmo (sem esperar o
-próximo ciclo de 15min) — útil pra conferir se algum ticket está na coluna errada e
+próximo ciclo do cron) — útil pra conferir se algum ticket está na coluna errada e
 descobrir se é erro do nosso lado ou coisa que ainda não chegou no snapshot salvo. Assim como
 o polling (ver "Detecção via polling"), essa busca ao vivo também reconfirma primeiro os
 clientes donos de tickets que já estão em `ticket_state` (`?phase=known`, rápido) antes de
@@ -184,7 +186,7 @@ um preview. As duas fases (`?phase=known` e a descoberta padrão) chamam o mesmo
 `processTicket()` de `lib/ticket-notify.js` que o polling usa: comparam com `ticket_state` e
 disparam a notificação no Telegram se algo mudou, antes de devolver os dados pro Kanban.
 Isso importa na prática porque clicar em "Buscar todos os tickets abertos" manualmente também
-conta como uma varredura de verdade e pode detectar e notificar mudanças que o ciclo de 15min
+conta como uma varredura de verdade e pode detectar e notificar mudanças que o ciclo do cron
 ainda não pegou. Colunas novas da SoftCS já aparecem com nome e ordem corretos sozinhas (ver
 seção acima); pra usar um nome diferente do da SoftCS, clique no nome da coluna e sobrescreva
 — vale tanto pro board salvo quanto pro ao vivo, já que os dois usam a mesma tabela
@@ -288,7 +290,7 @@ E mais uma **opcional**:
 
 - `GITHUB_DISPATCH_TOKEN` — personal access token do GitHub, usado só pra disparar os
   workflows de polling na hora assim que você clica em **Conectar** (ver passo 6.1), em vez de
-  esperar o próximo tick do cron externo (cron-job.org, roda a cada 5/15min — ver "Detecção
+  esperar o próximo tick do cron externo (cron-job.org, roda a cada 2/10min — ver "Detecção
   via polling"). Menos crítico agora que `refresh_token` funciona (token se renova sozinho,
   raramente é preciso reconectar), mas ainda dá um empurrão pra pegar mudanças recentes na
   hora, sem esperar o próximo tick. Sem essa variável, tudo continua funcionando normal, só
@@ -365,12 +367,12 @@ não exige cartão.
 1. Crie uma conta gratuita em [cron-job.org](https://cron-job.org).
 2. **Job 1** — reconfirma tickets já conhecidos:
    - URL: `https://SEU-DOMINIO.vercel.app/api/poll-tickets?phase=known`
-   - Execution schedule: **a cada 5 minutos**
+   - Execution schedule: **a cada 2 minutos**
    - Em **Advanced > Request headers**, adicione `Authorization: Bearer <CRON_SECRET>`
      (o mesmo valor da env var `CRON_SECRET` na Vercel — passo 2).
 3. **Job 2** — descoberta de tickets novos:
    - URL: `https://SEU-DOMINIO.vercel.app/api/poll-tickets`
-   - Execution schedule: **a cada 15 minutos**
+   - Execution schedule: **a cada 10 minutos**
    - Mesmo header `Authorization: Bearer <CRON_SECRET>`.
 4. Pra não esperar pra testar, use o botão **Run now**/**Test run** de cada job no
    cron-job.org, ou dispare direto:
