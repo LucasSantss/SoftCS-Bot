@@ -367,13 +367,15 @@ JSON da mensagem. Cole esse número no campo "thread_id do tópico" ao cadastrar
 edite depois direto no banco, `update telegram_chats set thread_id = '...' where chat_id =
 '...'`) — o `chat_id` continua sendo o do grupo, igual a qualquer outro chat.
 
-### 5.1. Comando `/status` (inscrição pessoal no privado)
+### 5.1. Comandos `/status` e `/stop` (inscrição pessoal no privado)
 
 Além de mandar notificação pros grupos/chats cadastrados, um agente pode falar **no privado**
 com o bot e mandar `/status` — se o `@usuário` do Telegram dele bater com o que está
 cadastrado na aba Agentes, o bot passa a mandar uma cópia de toda notificação de ticket criado
-por ele também nesse DM, além de onde já ia antes. Fica valendo permanentemente (até alguém
-desativar esse chat na aba Chats) — não precisa repetir o comando toda vez.
+por ele também nesse DM, além de onde já ia antes. Fica valendo permanentemente, independente
+de qualquer atualização/mudança no sistema — não precisa repetir o comando toda vez. Pra
+parar, a própria pessoa manda `/stop` a qualquer momento (desativa só o chat dela, sem precisar
+de administrador); pra reativar depois, é só mandar `/status` de novo.
 
 Por segurança, o bot **nunca confia num `@usuário` digitado** pela pessoa — ele usa o
 `@usuário` que o próprio Telegram manda (verificado, vem no update), então não dá pra alguém
@@ -529,8 +531,8 @@ api/
   import-agents.js                importa nome/e-mail em lote (JSON ou stream RSC colado)
   telegram-test.js                  manda uma mensagem de teste pra um chat_id (botão "Testar")
   telegram-webhook.js                 recebe update de ENTRADA do bot (Telegram chamando a
-                                     gente, não o contrário) — só trata /status por enquanto
-                                     (ver README "Comando /status"). Autenticado pelo header
+                                     gente, não o contrário) — trata /status e /stop (ver
+                                     README "Comandos /status e /stop"). Autenticado pelo header
                                      secreto do setWebhook (TELEGRAM_WEBHOOK_SECRET), não por
                                      sessão nem CRON_SECRET
 vercel.json            reescreve /api/auth-start, /api/auth-callback, /api/auth-logout,

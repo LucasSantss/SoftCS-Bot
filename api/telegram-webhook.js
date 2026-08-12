@@ -2,11 +2,11 @@ import sql from '../lib/db.js';
 import { sendTelegramMessageToChat, escapeHtml } from '../lib/telegram.js';
 
 // Recebe updates do bot do Telegram (mensagens mandadas pra ele) — configurado
-// via setWebhook, ver README. Só existe por causa do comando /status (DM
-// pessoal, ver handleStatus abaixo); nenhum outro comando é tratado ainda.
-// Não exige sessão (é o Telegram que chama isso, não um navegador logado) —
-// autenticado pelo header secreto que o Telegram reenvia em toda chamada
-// (setWebhook com secret_token), não por cookie.
+// via setWebhook, ver README. Só existe por causa dos comandos /status e
+// /stop (DM pessoal, ver handleStatus/handleStop abaixo); nenhum outro
+// comando é tratado ainda. Não exige sessão (é o Telegram que chama isso,
+// não um navegador logado) — autenticado pelo header secreto que o Telegram
+// reenvia em toda chamada (setWebhook com secret_token), não por cookie.
 async function findAgentByTelegramUsername(username) {
   const rows = await sql`
     select softcs_user_id, display_name from agent_mapping
@@ -53,9 +53,24 @@ async function handleStatus({ chatId, username, displayName }) {
   return (
     `Pronto${agent.display_name ? `, ${escapeHtml(agent.display_name)}` : ''}! A partir de agora você ` +
     'recebe aqui, no privado, os tickets criados por você sempre que forem criados ou ' +
-    'mudarem de estágio — além de onde essa notificação já ia antes. Pra parar de receber, ' +
-    'peça pra um administrador desativar esse chat na aba Chats do painel.'
+    'mudarem de estágio — além de onde essa notificação já ia antes, e continua assim pra ' +
+    'sempre, independente de qualquer atualização, até você mandar /stop.'
   );
+}
+
+// /stop: desfaz o /status — desativa esse chat privado (mesma flag `active`
+// que a aba Chats usa pro toggle manual), sem precisar de administrador.
+// Só afeta o próprio chat de quem mandou o comando (chat.id de uma DM é o
+// user id da pessoa), nunca o de outra pessoa.
+async function handleStop({ chatId }) {
+  const rows = await sql`
+    update telegram_chats set active = false where chat_id = ${String(chatId)} and active = true
+    returning chat_id
+  `;
+  if (rows.length === 0) {
+    return 'Você não tinha notificações pessoais ativadas aqui — nada a fazer.';
+  }
+  return 'Pronto, não vou mais te mandar notificação de ticket aqui. Pra reativar, mande /status de novo quando quiser.';
 }
 
 function parseCommand(text) {
@@ -86,17 +101,20 @@ export default async function handler(req, res) {
   }
 
   const command = parseCommand(message.text);
-  if (command !== 'status') {
+  if (command !== 'status' && command !== 'stop') {
     res.status(200).json({ ok: true, skipped: true });
     return;
   }
 
   try {
-    const reply = await handleStatus({
-      chatId: message.chat.id,
-      username: message.from?.username ?? null,
-      displayName: message.from?.first_name ?? null,
-    });
+    const reply =
+      command === 'status'
+        ? await handleStatus({
+            chatId: message.chat.id,
+            username: message.from?.username ?? null,
+            displayName: message.from?.first_name ?? null,
+          })
+        : await handleStop({ chatId: message.chat.id });
     await sendTelegramMessageToChat(message.chat.id, reply);
     res.status(200).json({ ok: true });
   } catch (error) {
