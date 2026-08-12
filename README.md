@@ -143,13 +143,15 @@ Ou seja: qualquer JSON que já tenha aparecido com nome/e-mail/hash de senha emb
 de um endpoint **interno** da SoftCS (sessão logada no navegador — a tela de "Usuários" em
 Configurações), não da API pública. Pra contornar isso:
 
-- **Nome e ordem da coluna**: clique no nome da coluna no Kanban (aba Tickets) — pede o
-  nome e depois a posição (número; quanto menor, mais à esquerda) e salva os dois em
-  `stage_labels`, usado dali em diante tanto no nosso Kanban quanto no nome do estágio que
-  vai na mensagem do Telegram. Sem posição definida, a coluna cai no fim. É a única forma de
-  fazer nosso board bater com o Kanban real da SoftCS (nome **e** ordem), já que a API
-  pública não devolve nenhum dos dois — confirmado ao vivo, o ticket cru só tem `stageId`,
-  sem nome nem posição embutidos.
+- **Nome e ordem da coluna**: cada ticket já vem com o nome e a posição do estágio embutidos
+  (`denormalizedStage`/`stage` na resposta da API — ao contrário do que se pensava antes,
+  esses campos existem sim). Por isso, `processTicket()` (`lib/ticket-notify.js`) grava isso
+  sozinho em `stage_labels` na primeira vez que aparece um `stageId` sem label salvo — nenhuma
+  ação manual é necessária pra colunas novas aparecerem com o nome certo. Ainda dá pra clicar
+  no nome da coluna no Kanban (aba Tickets) pra sobrescrever manualmente (pede nome e posição)
+  se quiser um nome diferente do que a SoftCS usa — o valor manual sempre tem prioridade sobre
+  o auto-gravado (ver `extractStage()` em `lib/ticket-scan.js`). Sem posição definida, a
+  coluna cai no fim.
 - **Nome/e-mail de quem criou**: cole o payload da tela "Usuários" da SoftCS (JSON, ou o
   texto cru copiado do DevTools) no card "Importar usuários da SoftCS" da aba Agentes —
   importa nome e e-mail de todo mundo de uma vez, indexado pelo ID. O `@` do Telegram
@@ -176,13 +178,12 @@ polling automático, não só a ordem que a SoftCS devolve.
 um preview. As duas fases (`?phase=known` e a descoberta padrão) chamam o mesmo
 `processTicket()` de `lib/ticket-notify.js` que o polling usa: comparam com `ticket_state` e
 disparam a notificação no Telegram se algo mudou, antes de devolver os dados pro Kanban.
-Isso importa na prática porque, enquanto o `access_token` não tiver `refresh_token` (ver
-aviso abaixo), o polling automático nem sempre roda a tempo — clicar em "Buscar todos os
-tickets abertos" manualmente também conta como uma varredura de verdade e pode detectar e
-notificar mudanças que o ciclo de 15min perdeu. Pra bater exatamente com o Kanban
-real da SoftCS (mesmo nome, mesma ordem das colunas), clique em cada nome de coluna e defina
-nome + posição (ver seção acima) — vale tanto pro board salvo quanto pro ao vivo, já que os
-dois usam a mesma tabela `stage_labels`.
+Isso importa na prática porque clicar em "Buscar todos os tickets abertos" manualmente também
+conta como uma varredura de verdade e pode detectar e notificar mudanças que o ciclo de 15min
+ainda não pegou. Colunas novas da SoftCS já aparecem com nome e ordem corretos sozinhas (ver
+seção acima); pra usar um nome diferente do da SoftCS, clique no nome da coluna e sobrescreva
+— vale tanto pro board salvo quanto pro ao vivo, já que os dois usam a mesma tabela
+`stage_labels`.
 
 > Contas grandes têm milhares de clientes (testei numa conta real com mais de 2000) e a
 > SoftCS só lista tickets por cliente — não existe um `/tickets` geral (retorna 404) nem um
@@ -451,7 +452,8 @@ api/
                               carrega sozinho ao abrir a página). Os dois primeiros também
                               usam processTicket() — a busca manual grava e notifica igual
                               ao polling automático, não é só um preview
-  stage-labels.js               nomes das colunas do Kanban (cadastrados manualmente)
+  stage-labels.js                 nomes das colunas do Kanban (auto-gravados por processTicket(),
+                                   sobrescrevíveis na mão pela aba Tickets)
   import-agents.js                importa nome/e-mail em lote (JSON ou stream RSC colado)
   telegram-test.js                  manda uma mensagem de teste pra um chat_id (botão "Testar")
 vercel.json            reescreve /api/auth-start, /api/auth-callback, /api/auth-logout,
