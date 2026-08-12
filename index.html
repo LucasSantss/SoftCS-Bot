@@ -161,8 +161,14 @@
               <div class="create-row">
                 <input name="chat_id" placeholder="chat_id (ex: -1001234567890)" required />
                 <input name="label" placeholder="rótulo (ex: Suporte N1)" />
+                <input name="thread_id" placeholder="thread_id do tópico (opcional)" />
                 <button type="submit" class="btn btn-primary">+ Adicionar</button>
               </div>
+              <p class="muted" style="margin-top: 0.35rem;">
+                Deixe "thread_id" em branco pra notificar o grupo inteiro. Preencha só se
+                quiser mandar pra um Tópico específico (grupo em modo fórum) — veja no README
+                como descobrir esse número.
+              </p>
               <label class="field-label" style="margin-top: 0.75rem;">
                 Membros desse chat (quem deve ser mencionado quando um ticket criado por
                 eles for atualizado) — Ctrl/Cmd+clique pra selecionar vários

@@ -285,7 +285,7 @@ Essas cinco são obrigatórias, tanto no `.env` local quanto no painel do projet
   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
   ```
 
-E mais uma **opcional**:
+E mais duas **opcionais**:
 
 - `GITHUB_DISPATCH_TOKEN` — personal access token do GitHub, usado só pra disparar os
   workflows de polling na hora assim que você clica em **Conectar** (ver passo 6.1), em vez de
@@ -294,6 +294,9 @@ E mais uma **opcional**:
   raramente é preciso reconectar), mas ainda dá um empurrão pra pegar mudanças recentes na
   hora, sem esperar o próximo tick. Sem essa variável, tudo continua funcionando normal, só
   sem esse empurrão.
+- `TELEGRAM_WEBHOOK_SECRET` — segredo pro webhook de entrada do Telegram (bot recebendo
+  mensagem, não só enviando), necessário só pro comando `/status` (ver passo 5.1). Sem essa
+  variável, o resto do bot funciona normal, só o `/status` fica indisponível.
 
 ### 3. Deploy
 
@@ -353,6 +356,52 @@ especificamente ali quando um desses agentes for o criador.
 > (a) tiver um `@username` público configurado e (b) for membro do chat/grupo onde o
 > bot posta. Se a pessoa não estiver no grupo, o `@username` aparece como texto/link
 > mas ninguém é notificado.
+
+**Enviando só pra um Tópico específico dentro de um grupo**: grupos em modo fórum (ex: um
+grupo com abas/subdivisões tipo "Geral", "Notificações") têm **Tópicos**, cada um com seu
+próprio `thread_id` — sem preencher isso, a mensagem vai pro grupo inteiro (tópico "Geral").
+A API do Telegram não lista os tópicos existentes, só devolve o id de um quando alguém posta
+nele — pra descobrir: mande qualquer mensagem dentro do tópico desejado (com o bot no grupo)
+e acesse `https://api.telegram.org/bot<TOKEN>/getUpdates`; o `message_thread_id` aparece no
+JSON da mensagem. Cole esse número no campo "thread_id do tópico" ao cadastrar o chat (ou
+edite depois direto no banco, `update telegram_chats set thread_id = '...' where chat_id =
+'...'`) — o `chat_id` continua sendo o do grupo, igual a qualquer outro chat.
+
+### 5.1. Comando `/status` (inscrição pessoal no privado)
+
+Além de mandar notificação pros grupos/chats cadastrados, um agente pode falar **no privado**
+com o bot e mandar `/status` — se o `@usuário` do Telegram dele bater com o que está
+cadastrado na aba Agentes, o bot passa a mandar uma cópia de toda notificação de ticket criado
+por ele também nesse DM, além de onde já ia antes. Fica valendo permanentemente (até alguém
+desativar esse chat na aba Chats) — não precisa repetir o comando toda vez.
+
+Por segurança, o bot **nunca confia num `@usuário` digitado** pela pessoa — ele usa o
+`@usuário` que o próprio Telegram manda (verificado, vem no update), então não dá pra alguém
+digitar o `@` de um colega e começar a receber os tickets dele. Se a pessoa não tiver
+`@usuário` público configurado no Telegram, ou se não estiver cadastrada na aba Agentes com
+esse mesmo `@`, o bot explica o que falta em vez de aceitar qualquer coisa digitada.
+
+Pra habilitar esse comando, é preciso registrar um webhook de entrada (diferente do que já
+existe hoje, que só *envia* mensagem — isso aqui faz o bot *receber*):
+
+1. Gere um segredo aleatório e cadastre como env var `TELEGRAM_WEBHOOK_SECRET` na Vercel (e
+   no `.env` local, se for testar por aqui):
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+   ```
+2. Depois do deploy, registre o webhook uma vez (troque `<TOKEN>`, `<SECRET>` e
+   `SEU-DOMINIO`):
+   ```bash
+   curl "https://api.telegram.org/bot<TOKEN>/setWebhook" \
+     -d "url=https://SEU-DOMINIO.vercel.app/api/telegram-webhook" \
+     -d "secret_token=<SECRET>"
+   ```
+3. Confirme que registrou certo: `https://api.telegram.org/bot<TOKEN>/getWebhookInfo` deve
+   mostrar a URL cadastrada sem `last_error_message`.
+
+Sem `TELEGRAM_WEBHOOK_SECRET` configurado, o comando `/status` simplesmente não funciona
+(webhook nunca registrado) — o resto do bot (envio de notificação) continua normal, não
+depende disso.
 
 ### 6. Ligar o polling (cron externo — cron-job.org)
 
@@ -479,12 +528,17 @@ api/
   stage-labels.js                 nomes das colunas do Kanban (cadastrados manualmente)
   import-agents.js                importa nome/e-mail em lote (JSON ou stream RSC colado)
   telegram-test.js                  manda uma mensagem de teste pra um chat_id (botão "Testar")
+  telegram-webhook.js                 recebe update de ENTRADA do bot (Telegram chamando a
+                                     gente, não o contrário) — só trata /status por enquanto
+                                     (ver README "Comando /status"). Autenticado pelo header
+                                     secreto do setWebhook (TELEGRAM_WEBHOOK_SECRET), não por
+                                     sessão nem CRON_SECRET
 vercel.json            reescreve /api/auth-start, /api/auth-callback, /api/auth-logout,
                        /api/me, /api/users, /api/oauth-start e /api/oauth-callback pros
                        arquivos consolidados acima (com ?action=...) — as URLs externas não
                        mudam, só a implementação por trás. Existe porque o plano Hobby da
                        Vercel limita a 12 Serverless Functions por deployment, e um arquivo
-                       por rota estourava isso (chegou a 15; hoje são 11).
+                       por rota estourava isso (chegou a 15; hoje são exatamente 12, no limite).
 lib/
   db.js                 conexão com o Neon
   auth.js                 sessão/cookie, checagem de domínio @chatbotmaker.io + allowlist,

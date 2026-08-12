@@ -20,6 +20,7 @@ const routes = {
   '/api/discover-tickets': ['./api/discover-tickets.js'],
   '/api/poll-tickets': ['./api/poll-tickets.js'],
   '/api/telegram-test': ['./api/telegram-test.js'],
+  '/api/telegram-webhook': ['./api/telegram-webhook.js'],
   '/api/stage-labels': ['./api/stage-labels.js'],
   '/api/import-agents': ['./api/import-agents.js'],
   '/api/oauth-start': ['./api/softcs-oauth.js', 'start'],

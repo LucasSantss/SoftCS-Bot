@@ -656,7 +656,9 @@ function renderChatRow(chat) {
     </div>
   `;
   row.querySelector(".list-item-title").textContent = chat.label || "(sem rótulo)";
-  row.querySelector(".list-item-sub").textContent = chat.chat_id;
+  row.querySelector(".list-item-sub").textContent = chat.thread_id
+    ? `${chat.chat_id} · tópico ${chat.thread_id}`
+    : chat.chat_id;
 
   const testResult = row.querySelector(".test-result");
   row.querySelector(".test-btn").addEventListener("click", async (event) => {
@@ -664,7 +666,10 @@ function renderChatRow(chat) {
     btn.disabled = true;
     testResult.textContent = "";
     try {
-      await api("/api/telegram-test", { method: "POST", body: JSON.stringify({ chat_id: chat.chat_id }) });
+      await api("/api/telegram-test", {
+        method: "POST",
+        body: JSON.stringify({ chat_id: chat.chat_id, thread_id: chat.thread_id }),
+      });
       testResult.textContent = "✓ enviada";
       testResult.className = "test-result status-line ok";
     } catch (err) {
@@ -732,7 +737,7 @@ function renderChatRow(chat) {
     try {
       await api("/api/chats", {
         method: "POST",
-        body: JSON.stringify({ chat_id: chat.chat_id, label: chat.label, member_ids: memberIds }),
+        body: JSON.stringify({ chat_id: chat.chat_id, label: chat.label, thread_id: chat.thread_id, member_ids: memberIds }),
       });
       setStatus(membersStatus, "Salvo.", false);
       await loadChats();
@@ -753,6 +758,7 @@ chatForm.addEventListener("submit", async (event) => {
   const data = {
     chat_id: chatForm.elements.chat_id.value.trim(),
     label: chatForm.elements.label.value.trim(),
+    thread_id: chatForm.elements.thread_id.value.trim(),
     member_ids: memberIds,
   };
   try {

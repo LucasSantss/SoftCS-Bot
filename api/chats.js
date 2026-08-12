@@ -8,14 +8,14 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const rows = await sql`
       select
-        c.chat_id, c.label, c.active, c.created_at,
+        c.chat_id, c.label, c.active, c.thread_id, c.created_at,
         coalesce(
           json_agg(a.softcs_user_id) filter (where a.softcs_user_id is not null),
           '[]'
         ) as member_ids
       from telegram_chats c
       left join chat_agents a on a.chat_id = c.chat_id
-      group by c.chat_id, c.label, c.active, c.created_at
+      group by c.chat_id, c.label, c.active, c.thread_id, c.created_at
       order by c.created_at desc
     `;
     res.status(200).json(rows);
@@ -23,16 +23,16 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { chat_id, label, member_ids } = req.body ?? {};
+    const { chat_id, label, member_ids, thread_id } = req.body ?? {};
     if (!chat_id) {
       res.status(400).json({ error: 'chat_id é obrigatório' });
       return;
     }
 
     await sql`
-      insert into telegram_chats (chat_id, label, active)
-      values (${String(chat_id)}, ${label || null}, true)
-      on conflict (chat_id) do update set label = excluded.label, active = true
+      insert into telegram_chats (chat_id, label, active, thread_id)
+      values (${String(chat_id)}, ${label || null}, true, ${thread_id ? String(thread_id) : null})
+      on conflict (chat_id) do update set label = excluded.label, active = true, thread_id = excluded.thread_id
     `;
 
     if (Array.isArray(member_ids)) {

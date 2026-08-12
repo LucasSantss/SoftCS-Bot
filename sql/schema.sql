@@ -21,12 +21,22 @@ create table if not exists processed_webhook_events (
 );
 
 -- Grupos/canais do Telegram que devem receber a notificação de cada ticket novo.
+-- Também usada pra chats privados (DM) individuais — ver comando /status em
+-- api/telegram-webhook.js: chat_id de uma conversa privada é o mesmo que o
+-- user id da pessoa no Telegram, então funciona igual a um chat de grupo.
 create table if not exists telegram_chats (
   chat_id text primary key,
   label text,
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
+
+-- thread_id de um Tópico específico dentro de um grupo em modo fórum (ver
+-- seção "Tópicos" do Telegram) — quando preenchido, a notificação vai só
+-- pra esse tópico (Bot API: message_thread_id), não pro grupo inteiro.
+-- Descoberto manualmente (ver README) porque a API do Telegram não lista
+-- tópicos existentes, só devolve o id quando alguém posta neles.
+alter table telegram_chats add column if not exists thread_id text;
 
 -- Credenciais da aplicação OAuth2 da SoftCS, usadas pela busca "Buscar tickets".
 create table if not exists settings (
