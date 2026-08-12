@@ -55,14 +55,14 @@ create table if not exists oauth_pkce_state (
   created_at timestamptz not null default now()
 );
 
--- Nome amigável e posição pra cada coluna do Kanban (stageId). Gravado
--- automaticamente por processTicket() (lib/ticket-notify.js) na primeira vez
--- que um stage_id aparece num ticket, usando o nome/posição que a própria
--- API da SoftCS manda (denormalizedStage/stage) — também editável na mão
--- pela aba Tickets (clique no nome da coluna), o que sempre tem prioridade
--- sobre o valor auto-gravado (ver extractStage() em lib/ticket-scan.js).
--- `position` controla a ordem das colunas no nosso Kanban (menor aparece
--- primeiro); sem valor definido, a coluna cai no fim (fallback 999).
+-- Nome amigável e posição pra cada coluna do Kanban (stageId), preenchidos
+-- manualmente no painel — a API pública da SoftCS (a que a gente usa,
+-- autenticada via OAuth) não devolve nome nem posição do estágio, só o ID
+-- (confirmado ao vivo: `denormalizedStage`/`stage` vêm sempre `undefined`
+-- nela; só o endpoint interno de sessão do navegador tem isso, fora do
+-- nosso alcance). `position` controla a ordem das colunas no nosso Kanban
+-- (menor aparece primeiro); sem valor definido, a coluna cai no fim
+-- (fallback 999 em extractStage()).
 create table if not exists stage_labels (
   stage_id text primary key,
   label text not null,
