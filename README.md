@@ -10,9 +10,9 @@ cadastrado, cai pra todos os chats ativos (sem mention funcional, só o nome).
 
 **A detecção é por polling, não por webhook.** Investigamos a fundo (self-service da SoftCS,
 inclusive a aba Automações) e não existe webhook de ticket disponível na plataforma — ver
-"Por que polling, não webhook" abaixo. Um workflow do GitHub Actions chama
-`api/poll-tickets.js` a cada 15 minutos, que varre a conta inteira via API e compara com o
-último estado conhecido de cada ticket (tabela `ticket_state`) pra descobrir o que mudou.
+"Por que polling, não webhook" abaixo. Um cron externo ([cron-job.org](https://cron-job.org))
+chama `api/poll-tickets.js` periodicamente, que varre a conta via API e compara com o último
+estado conhecido de cada ticket (tabela `ticket_state`) pra descobrir o que mudou.
 `api/webhook.js` continua existindo (não exige sessão — seria chamado pela SoftCS, não por
 um navegador logado) pro caso de a SoftCS vir a liberar webhook de verdade no futuro, mas não
 é o caminho usado hoje.
@@ -62,39 +62,44 @@ a arquitetura de mensagem/roteamento (`lib/ticket-notify.js`) já é compartilha
 
 ## Detecção via polling
 
-`api/poll-tickets.js` é chamado por dois workflows do GitHub Actions separados,
-autenticados por um header `Authorization: Bearer <CRON_SECRET>` (mesmo valor cadastrado
-como env var na Vercel e como secret `CRON_SECRET` no repositório do GitHub — ver Setup).
-Não roda como Cron Job da própria Vercel porque **o plano Hobby limita cron a 1x por dia** —
-inviável pra isso.
+`api/poll-tickets.js` é chamado periodicamente por um cron externo
+([cron-job.org](https://cron-job.org), gratuito), autenticado por um header
+`Authorization: Bearer <CRON_SECRET>` (mesmo valor cadastrado como env var na Vercel — ver
+Setup). Não roda como Cron Job da própria Vercel porque **o plano Hobby limita cron a 1x por
+dia** — inviável pra isso.
 
-**1) `?phase=known`, a cada 5min**
-([.github/workflows/poll-known.yml](.github/workflows/poll-known.yml)) — reconfirma só os
-clientes donos de tickets que **já estão** em `ticket_state` (uma chamada só, sem
-paginação, já que são poucos clientes — um por ticket já conhecido, não a conta inteira). É
-a frequência mais alta que dá pra confiar no GitHub Actions — a sintaxe de cron aceita
-`* * * * *` (todo minuto), mas a própria documentação do GitHub avisa que execuções
-agendadas atrasam bastante em períodos de carga alta e não garante nada abaixo de uns 5min;
-por isso é o intervalo usado, não 1min. Roda separado da descoberta, então a movimentação de
-tickets já conhecidos é detectada de forma confiável a cada 5min, mesmo que a descoberta
+> ⚠️ **Por que não é o `schedule:` do GitHub Actions**: essa era a ideia original —
+> [.github/workflows/poll-known.yml](.github/workflows/poll-known.yml) e
+> [poll-tickets.yml](.github/workflows/poll-tickets.yml) tinham `on: schedule` configurado
+> pra 5min/15min. Medido ao vivo por 2 dias inteiros: o intervalo real entre execuções ficou
+> em **~55-70min de média** (chegando a 150min), **igual pros dois workflows independente do
+> valor configurado** — ou seja, não é o nosso cron sendo respeitado com atraso, é um
+> throttling do agendador do GitHub pra workflows agendados que ignora praticamente o
+> intervalo pedido. Isso é bem mais severo do que o aviso oficial do GitHub Actions
+> ("execuções agendadas podem atrasar em períodos de carga alta") sugere. Pra um bot cujo
+> objetivo é avisar sobre ticket novo rapidamente, um gap de ~1h é inviável — por isso os dois
+> workflows tiveram o `schedule:` removido (só ficou `workflow_dispatch`, usado pro disparo
+> imediato ao reconectar — ver 6.1) e o cron externo assumiu o papel de disparar de verdade no
+> intervalo configurado.
+
+**1) `?phase=known`, a cada 5min** — reconfirma só os clientes donos de tickets que **já
+estão** em `ticket_state` (uma chamada só, sem paginação, já que são poucos clientes — um por
+ticket já conhecido, não a conta inteira). Roda separado da descoberta, então a movimentação
+de tickets já conhecidos é detectada de forma confiável a cada 5min, mesmo que a descoberta
 abaixo não termine a tempo do token expirar.
 
-**2) Descoberta (padrão, sem `phase`), a cada 15min**
-([.github/workflows/poll-tickets.yml](.github/workflows/poll-tickets.yml)) — escaneia **um
-lote de clientes** (mesmo padrão de
-`api/discover-tickets.js`, via `lib/ticket-scan.js`, compartilhado entre os dois) pra achar
-tickets novos em clientes ainda não vistos; o workflow encadeia as chamadas em loop (bash +
-`jq`) até `hasMoreClients` virar `false`, com o mesmo backoff de rate limit
-(`retryAfterSeconds`) que o painel já usava. **O offset não é passado pelo workflow** — o
-servidor guarda sozinho onde parou (`ticket_poll_cursor` na tabela `settings`) e cada chamada
-nova continua dali, mesmo que seja de uma execução diferente do GitHub Actions. Isso importa
-porque, sem `refresh_token` (ver aviso abaixo), o `access_token` pode expirar no meio de uma
-varredura de conta grande — sem esse cursor persistido, cada ciclo de 15min recomeçaria do
-zero e nunca chegaria nos clientes "do fim da fila", deixando tickets novos neles pra sempre
-não-descobertos (a fase 1 não ajuda aqui, já que só sabe de tickets que já foram descobertos
-antes). Com o cursor, o progresso acumula entre execuções (mesmo as que falham no meio) até
-completar uma volta inteira pela conta, e então reinicia do zero pro próximo ciclo.
-`?offset=` na query ainda funciona como override manual pra debug.
+**2) Descoberta (padrão, sem `phase`), a cada 15min** — escaneia **um lote de clientes** por
+chamada (mesmo padrão de `api/discover-tickets.js`, via `lib/ticket-scan.js`, compartilhado
+entre os dois) pra achar tickets novos em clientes ainda não vistos. Ao contrário da fase 1,
+uma chamada só não dá conta da conta inteira (pode ter milhares de clientes) — o cron externo
+só dispara a chamada, sem saber de `hasMoreClients`; **o servidor guarda sozinho onde parou**
+(`ticket_poll_cursor` na tabela `settings`) e cada chamada nova (a cada 15min) continua dali,
+avançando um lote por vez até completar uma volta inteira pela conta, e então reinicia do zero
+pro próximo ciclo. Isso importa porque, mesmo sem depender mais de token expirando no meio
+(agora que `refresh_token` funciona — ver seção OAuth), uma conta grande ainda leva vários
+ciclos de 15min pra escanear por completo; sem esse cursor persistido, cada chamada
+recomeçaria do zero e nunca chegaria nos clientes "do fim da fila". `?offset=` na query ainda
+funciona como override manual pra debug.
 
 As duas fases usam a mesma lógica de comparação (`processTicket()` em `lib/ticket-notify.js`,
 compartilhado também com `api/discover-tickets.js` — ver seção do Painel): cada ticket
@@ -273,20 +278,21 @@ Essas cinco são obrigatórias, tanto no `.env` local quanto no painel do projet
 - `TELEGRAM_BOT_TOKEN` — token do bot, criado com [@BotFather](https://t.me/BotFather)
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — credenciais OAuth2 do Google pro login do
   painel (ver passo 4)
-- `CRON_SECRET` — segredo que autentica as chamadas do GitHub Actions em
-  `/api/poll-tickets` (ver passo 6). Gere um valor aleatório com:
+- `CRON_SECRET` — segredo que autentica as chamadas periódicas em `/api/poll-tickets` (ver
+  passo 6, feitas pelo cron externo cron-job.org). Gere um valor aleatório com:
   ```bash
   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
   ```
 
-E mais uma **opcional, mas recomendada**:
+E mais uma **opcional**:
 
 - `GITHUB_DISPATCH_TOKEN` — personal access token do GitHub, usado só pra disparar os
-  workflows de polling na hora assim que você clica em **Conectar**, em vez de esperar o
-  próximo tick do cron (ver passo 6.1). Sem `refresh_token` (ver aviso mais abaixo), cada
-  reconexão só rende ~15min de token válido, e não vale desperdiçar parte disso esperando o
-  relógio do GitHub Actions. Sem essa variável, tudo continua funcionando normal, só sem
-  esse empurrão — o polling agendado ainda roda nos horários de sempre (a cada 5/15min).
+  workflows de polling na hora assim que você clica em **Conectar** (ver passo 6.1), em vez de
+  esperar o próximo tick do cron externo (cron-job.org, roda a cada 5/15min — ver "Detecção
+  via polling"). Menos crítico agora que `refresh_token` funciona (token se renova sozinho,
+  raramente é preciso reconectar), mas ainda dá um empurrão pra pegar mudanças recentes na
+  hora, sem esperar o próximo tick. Sem essa variável, tudo continua funcionando normal, só
+  sem esse empurrão.
 
 ### 3. Deploy
 
@@ -347,36 +353,47 @@ especificamente ali quando um desses agentes for o criador.
 > bot posta. Se a pessoa não estiver no grupo, o `@username` aparece como texto/link
 > mas ninguém é notificado.
 
-### 6. Ligar o polling (GitHub Actions)
+### 6. Ligar o polling (cron externo — cron-job.org)
 
 Sem webhook disponível na SoftCS (ver "Por que polling, não webhook" acima), quem detecta
-mudança são dois workflows:
-[.github/workflows/poll-known.yml](.github/workflows/poll-known.yml) (tickets já conhecidos,
-a cada 5 minutos) e
-[.github/workflows/poll-tickets.yml](.github/workflows/poll-tickets.yml) (descoberta de
-tickets novos, a cada 15 minutos).
+mudança é `api/poll-tickets.js`, chamado periodicamente por um cron externo. **Não é o
+`schedule:` do GitHub Actions** — testamos isso primeiro, mas o agendador do GitHub atrasa
+demais pra esse uso (~1h de gap real mesmo configurado pra 5/15min — ver aviso em "Detecção
+via polling"). [cron-job.org](https://cron-job.org) é gratuito, confiável nesse intervalo e
+não exige cartão.
 
-1. No repositório do GitHub, vá em **Settings > Secrets and variables > Actions** e crie um
-   secret chamado `CRON_SECRET` com o **mesmo valor** que você colocou na env var
-   `CRON_SECRET` da Vercel (passo 2) — vale pros dois workflows.
-2. Confirme que os dois workflows estão na branch padrão do repositório — `schedule` só
-   dispara pra workflows presentes ali (aqui, a branch padrão já é a que você usa pra tudo).
-3. As Actions precisam estar habilitadas no repositório (**Settings > Actions > General** —
-   normalmente já vêm habilitadas por padrão).
-4. Pra não esperar pra testar, dispare manualmente: aba **Actions** do GitHub >
-   **"Reconfirm known SoftCS tickets"** ou **"Poll SoftCS tickets"** > **Run workflow**.
+1. Crie uma conta gratuita em [cron-job.org](https://cron-job.org).
+2. **Job 1** — reconfirma tickets já conhecidos:
+   - URL: `https://SEU-DOMINIO.vercel.app/api/poll-tickets?phase=known`
+   - Execution schedule: **a cada 5 minutos**
+   - Em **Advanced > Request headers**, adicione `Authorization: Bearer <CRON_SECRET>`
+     (o mesmo valor da env var `CRON_SECRET` na Vercel — passo 2).
+3. **Job 2** — descoberta de tickets novos:
+   - URL: `https://SEU-DOMINIO.vercel.app/api/poll-tickets`
+   - Execution schedule: **a cada 15 minutos**
+   - Mesmo header `Authorization: Bearer <CRON_SECRET>`.
+4. Pra não esperar pra testar, use o botão **Run now**/**Test run** de cada job no
+   cron-job.org, ou dispare direto:
+   `curl -H "Authorization: Bearer $CRON_SECRET" https://SEU-DOMINIO.vercel.app/api/poll-tickets?phase=known`.
+
+Os workflows [poll-known.yml](.github/workflows/poll-known.yml) e
+[poll-tickets.yml](.github/workflows/poll-tickets.yml) continuam no repositório (chamam o
+mesmo endpoint), mas só disparam via `workflow_dispatch` (manual, ou automático ao reconectar
+— ver 6.1) — não têm mais `schedule:`, exatamente pra não competir/duplicar com o cron
+externo, que é quem garante o intervalo de verdade agora.
 
 Na primeira execução depois de configurado, o polling entra em **modo seed** automaticamente
 (grava o estado de todos os tickets abertos sem notificar ninguém — senão inundaria os
 chats) e só passa a notificar normalmente a partir da segunda varredura completa. Isso é
 esperado, não é bug.
 
-#### 6.1. Disparo automático ao reconectar (opcional, mas recomendado)
+#### 6.1. Disparo automático ao reconectar (opcional)
 
-Enquanto `refresh_token` não funcionar (ver aviso mais abaixo), cada reconexão manual só
-rende ~15min de token válido — e esperar o próximo tick do cron (até 5min pro known, até
-15min pra descoberta) pode desperdiçar boa parte dessa janela. `api/softcs-oauth.js` dispara
-os dois workflows na hora, assim que o token é salvo, via `lib/github-actions.js`:
+`api/softcs-oauth.js` dispara os dois workflows do GitHub Actions na hora, assim que o token é
+salvo, via `lib/github-actions.js` — um empurrão extra pra pegar mudanças recentes sem esperar
+o próximo tick do cron-job.org. Menos crítico agora que `refresh_token` funciona de verdade
+(o token se renova sozinho — reconectar manualmente deixou de ser algo rotineiro), mas ainda
+útil logo depois de reconectar por qualquer motivo (ex: revogação manual, troca de app OAuth).
 
 1. No GitHub, vá em **Settings (da sua conta) > Developer settings > Personal access tokens
    > Fine-grained tokens > Generate new token**.
@@ -385,9 +402,13 @@ os dois workflows na hora, assim que o token é salvo, via `lib/github-actions.j
 3. Em **Permissions > Repository permissions**, dê **Actions: Read and write**.
 4. Gere o token e cadastre como env var `GITHUB_DISPATCH_TOKEN` na Vercel (e no `.env`
    local, se for testar isso localmente) — faça um redeploy depois.
+5. Ainda em **Settings > Secrets and variables > Actions** do repositório, crie um secret
+   chamado `CRON_SECRET` com o mesmo valor da env var na Vercel — os workflows continuam
+   precisando dele pra autenticar a chamada que fazem, mesmo só disparando via
+   `workflow_dispatch` agora.
 
 Sem esse token configurado, a conexão continua funcionando normal, só sem esse empurrão —
-o polling agendado ainda roda nos horários de sempre.
+o cron-job.org continua rodando nos horários de sempre.
 
 ## Rodando localmente
 
@@ -416,17 +437,19 @@ middleware.js             Edge Middleware: sem cookie de sessão, redireciona / 
 admin.css               visual baseado no design system do CodeRise Hub
 admin.js                 lógica das abas (fetch nas APIs abaixo); redireciona pro login em 401
 .github/workflows/
-  poll-known.yml        roda api/poll-tickets.js?phase=known a cada 5min — reconfirma só os
-                       tickets já conhecidos, intervalo mais curto viável no GitHub Actions
-  poll-tickets.yml       roda api/poll-tickets.js a cada 15min em loop de lotes (bash + jq)
-                        com backoff se a SoftCS responder 429 — descobre tickets novos, ver
-                        "Detecção via polling"
+  poll-known.yml        roda api/poll-tickets.js?phase=known — reconfirma só os tickets já
+                       conhecidos. Só via workflow_dispatch (manual ou ao reconectar); o
+                       gatilho periódico de verdade é um cron externo (cron-job.org), não o
+                       schedule: do GitHub Actions — ver "Detecção via polling"
+  poll-tickets.yml       roda api/poll-tickets.js em loop de lotes (bash + jq) com backoff se
+                        a SoftCS responder 429 — descobre tickets novos. Mesma nota: só
+                        workflow_dispatch, gatilho periódico é o cron externo
 api/
   webhook.js            código morto por enquanto: endpoint que a SoftCS chamaria a cada
                         evento de ticket, mas não há webhook disponível na plataforma (ver
                         "Por que polling, não webhook"). Não exige sessão — seria chamado
                         pela SoftCS, não por um navegador logado.
-  poll-tickets.js         chamado pelo workflow do GitHub Actions, duas fases: ?phase=known
+  poll-tickets.js         chamado pelo cron externo (cron-job.org), duas fases: ?phase=known
                           reconfirma só os clientes de tickets já em ticket_state (rápido,
                           sempre completo); padrão descobre tickets novos varrendo a conta em
                           lotes (mesmo padrão do discover-tickets.js), retomando de

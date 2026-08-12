@@ -2,15 +2,22 @@ name: Poll SoftCS tickets
 
 # A SoftCS não expõe webhook de ticket (ver api/webhook.js), então quem
 # descobre ticket novo (em cliente ainda não visto) é essa varredura
-# completa da conta, chamando /api/poll-tickets em lotes a cada 15min.
-# Tickets JÁ conhecidos são reconfirmados com mais frequência (a cada 5min)
-# pelo workflow separado poll-known.yml — este aqui só cuida de descobrir o
-# que ainda não está em ticket_state. Roda por aqui (não como Cron Job da
-# própria Vercel) porque o plano Hobby da Vercel só permite cron 1x/dia —
-# GitHub Actions permite isso de graça.
+# completa da conta, chamando /api/poll-tickets em lotes. Tickets JÁ
+# conhecidos são reconfirmados com mais frequência pelo workflow separado
+# poll-known.yml — este aqui só cuida de descobrir o que ainda não está em
+# ticket_state.
+#
+# Não roda mais no `schedule:` do próprio GitHub Actions — medido ao vivo por
+# 2 dias, e o agendador do GitHub atrasa esse cron de "*/15" pra uma média
+# real de ~55-70min entre execuções (throttling do lado deles pra workflows
+# agendados, sem relação com o valor configurado), inviável pra notificação
+# em tempo hábil. Também não é Cron Job da própria Vercel porque o plano
+# Hobby só permite cron 1x/dia. Quem dispara isso periodicamente agora
+# (a cada 15min de verdade) é um cron externo (cron-job.org) chamando o
+# endpoint direto — ver README, seção "Detecção via polling".
+# `workflow_dispatch` continua aqui só pro disparo imediato ao reconectar
+# (lib/github-actions.js).
 on:
-  schedule:
-    - cron: '*/15 * * * *'
   workflow_dispatch: {}
 
 jobs:

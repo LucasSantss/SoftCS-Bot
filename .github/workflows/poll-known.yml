@@ -1,15 +1,19 @@
 name: Reconfirm known SoftCS tickets
 
-# Roda a fase "known" (reconfirma só os clientes donos de tickets que já
-# estão em ticket_state — ver api/poll-tickets.js) a cada 5min, separado do
-# workflow de descoberta completa (poll-tickets.yml, a cada 15min). GitHub
-# Actions não garante execução confiável abaixo de ~5min (cron */1 existe na
-# sintaxe, mas atrasa bastante em períodos de carga alta), então esse é o
-# intervalo mais curto viável — ainda assim 3x mais frequente que os 15min
-# da descoberta completa.
+# Reconfirma a fase "known" (só os clientes donos de tickets que já estão em
+# ticket_state — ver api/poll-tickets.js), separado do workflow de descoberta
+# completa (poll-tickets.yml).
+#
+# Não roda mais no `schedule:` do próprio GitHub Actions — medido ao vivo por
+# 2 dias, e o agendador do GitHub atrasa esse cron de "*/5" pra uma média
+# real de ~55-70min entre execuções (throttling do lado deles pra workflows
+# agendados, sem relação com o valor configurado; nem chega perto dos 5min
+# pedidos), inviável pra notificação em tempo hábil. Quem dispara isso
+# periodicamente agora é um cron externo (cron-job.org, roda no intervalo
+# configurado de verdade) chamando o endpoint direto — ver README, seção
+# "Detecção via polling". `workflow_dispatch` continua aqui só pro disparo
+# imediato ao reconectar (lib/github-actions.js).
 on:
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch: {}
 
 jobs:
