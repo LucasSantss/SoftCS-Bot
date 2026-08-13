@@ -452,6 +452,13 @@ descoberta que passar por um ticket daquele cliente. Editar as jornadas de um gr
 existente (sem mudar o nome/comando) preserva quem já estava inscrito; renomear o grupo muda
 o comando mas mantém as inscrições (`on update cascade` no banco).
 
+**Mapear automaticamente** (botão no topo da aba Jornadas) cria um grupo 1:1 — nome e comando
+a partir do próprio nome da jornada — pra cada jornada conhecida que ainda não pertence a
+nenhum grupo, de uma vez só. Não mexe em nada que já foi agrupado manualmente (junto com
+outras jornadas, ou com nome próprio); só preenche o que falta. Útil pra não ter que cadastrar
+uma por uma quando a lista de jornadas é grande — depois dá pra editar cada grupo criado
+automaticamente (juntar jornadas, renomear) igual a qualquer outro.
+
 Cada inscrição pessoal (`telegram_chats.is_personal = true`) aparece na aba **Chats**, numa
 lista separada dos grupos/canais ("Inscrições pessoais") — mostra o nome do agente, os grupos
 de jornada que segue (se houver), permite desativar manualmente e testar o envio, igual a

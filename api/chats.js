@@ -118,6 +118,42 @@ async function handleJourneyGroups(req, res) {
     return;
   }
 
+  // Mapeamento automático: cria um grupo 1:1 (nome = nome da jornada) pra
+  // cada jornada conhecida (ticket_state.journey_names) que ainda não
+  // pertence a NENHUM grupo existente — não mexe em jornadas que já foram
+  // agrupadas manualmente (junto com outras, ou renomeadas), só preenche o
+  // que falta. Pedido explícito, pra não precisar cadastrar uma por uma
+  // quando são várias.
+  if (req.method === 'POST' && req.body?.auto_map) {
+    const known = await sql`
+      select distinct unnest(journey_names) as name from ticket_state where journey_names is not null order by 1
+    `;
+    const covered = await sql`select distinct journey_name from journey_group_items`;
+    const coveredSet = new Set(covered.map((r) => r.journey_name));
+
+    const created = [];
+    const skipped = [];
+    for (const journeyName of known.map((r) => r.name)) {
+      if (coveredSet.has(journeyName)) continue; // já está em algum grupo, não mexe
+      const command = slugifyCommand(journeyName);
+      if (!command) {
+        skipped.push({ name: journeyName, reason: 'nome não vira comando válido' });
+        continue;
+      }
+      const clash = await sql`select 1 from journey_groups where command = ${command}`;
+      if (clash.length > 0) {
+        skipped.push({ name: journeyName, reason: `comando /${command} já existe (colisão de nome)` });
+        continue;
+      }
+      await sql`insert into journey_groups (command, name) values (${command}, ${journeyName})`;
+      await sql`insert into journey_group_items (command, journey_name) values (${command}, ${journeyName})`;
+      created.push({ command, name: journeyName });
+    }
+
+    res.status(200).json({ ok: true, created, skipped });
+    return;
+  }
+
   if (req.method === 'POST') {
     const { command: existingCommand, name, journey_names: journeyNames } = req.body ?? {};
     if (!name || !Array.isArray(journeyNames) || journeyNames.length === 0) {

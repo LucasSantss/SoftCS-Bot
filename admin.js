@@ -887,6 +887,28 @@ const journeyGroupEmpty = document.getElementById("journeyGroupEmpty");
 const newJourneyGroupJourneys = document.getElementById("newJourneyGroupJourneys");
 const journeyGroupJourneysEmpty = document.getElementById("journeyGroupJourneysEmpty");
 const journeyGroupCommandPreview = document.getElementById("journeyGroupCommandPreview");
+const autoMapJourneysBtn = document.getElementById("autoMapJourneysBtn");
+const autoMapJourneysStatus = document.getElementById("autoMapJourneysStatus");
+
+autoMapJourneysBtn.addEventListener("click", async () => {
+  autoMapJourneysBtn.disabled = true;
+  setStatus(autoMapJourneysStatus, "Mapeando…", false);
+  try {
+    const { created, skipped } = await api("/api/journey-groups", {
+      method: "POST",
+      body: JSON.stringify({ auto_map: true }),
+    });
+    const parts = [];
+    if (created.length) parts.push(`${created.length} grupo(s) criado(s): ${created.map((c) => c.name).join(", ")}`);
+    if (skipped.length) parts.push(`${skipped.length} pulada(s) (já agrupada(s) ou nome conflitante)`);
+    setStatus(autoMapJourneysStatus, parts.length ? parts.join(" — ") : "Nada novo pra mapear.", false);
+    await loadJourneyGroups();
+  } catch (err) {
+    setStatus(autoMapJourneysStatus, err.message, true);
+  } finally {
+    autoMapJourneysBtn.disabled = false;
+  }
+});
 
 // Mesma lógica de lib/journey-groups.js (slugifyCommand) — só pra prévia
 // instantânea no formulário; quem manda de verdade é sempre o backend.

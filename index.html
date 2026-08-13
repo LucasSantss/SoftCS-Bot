@@ -188,7 +188,7 @@
               </p>
               <label class="field-label" style="margin-top: 0.75rem;">
                 Membros desse chat (quem deve ser mencionado quando um ticket criado por
-                eles for atualizado) — Ctrl/Cmd+clique pra selecionar vários
+                eles for atualizado) — clique nos que quiser incluir
               </label>
               <div id="newChatMembers" class="multi-select"></div>
             </form>
@@ -219,6 +219,19 @@
         <!-- ─── Jornadas ─── -->
         <div class="tab-panel" id="tab-journeys">
           <div class="card">
+            <h3>Mapear automaticamente</h3>
+            <p class="muted" style="margin-bottom: 0.75rem;">
+              Cria um grupo pra cada jornada conhecida que ainda não está em nenhum grupo —
+              um grupo por jornada, com o próprio nome dela. Não mexe nas jornadas que você já
+              agrupou manualmente (junto com outras, ou com nome próprio).
+            </p>
+            <button type="button" id="autoMapJourneysBtn" class="btn btn-secondary">
+              Mapear jornadas automaticamente
+            </button>
+            <p id="autoMapJourneysStatus" class="status-line"></p>
+          </div>
+
+          <div class="card">
             <h3>Novo grupo de jornadas</h3>
             <p class="muted" style="margin-bottom: 0.5rem;">
               Junta várias jornadas sob um nome — esse nome vira um comando de verdade no bot
@@ -233,7 +246,7 @@
               </div>
               <p class="muted" id="journeyGroupCommandPreview" style="margin-top: 0.35rem;"></p>
               <label class="field-label" style="margin-top: 0.75rem;">
-                Jornadas desse grupo — Ctrl/Cmd+clique pra selecionar várias
+                Jornadas desse grupo — clique nas que quiser incluir
               </label>
               <div id="newJourneyGroupJourneys" class="multi-select"></div>
               <p class="muted" id="journeyGroupJourneysEmpty" style="display:none; margin-top: 0.35rem;">
