@@ -5,10 +5,12 @@ mais chats do Telegram — com título, estágio, link direto pro ticket
 (`https://admin.softcs.com.br/pt-br/tickets/{publicId}`) e a menção (`@username`) de quem
 criou o ticket. A mensagem só vai pro(s) chat(s) onde esse criador está cadastrado como
 membro (aba Chats) — é o único jeito da `@menção` realmente notificar alguém no Telegram, já
-que só funciona se a pessoa for membro do chat/grupo. Se o criador não estiver em nenhum chat
-cadastrado, cai pra todos os **grupos/canais** ativos (sem mention funcional, só o nome) — as
-inscrições pessoais via `/status` (ver seção 5.1) nunca entram nesse fallback, só recebem
-ticket de quem de fato se inscreveu.
+que só funciona se a pessoa for membro do chat/grupo. **Sem fallback**: se o criador do
+ticket não estiver vinculado a nenhum chat (nem por membro, nem por seguir um grupo de
+jornada do cliente — ver "Detecção via polling" e seção 5.1), o ticket simplesmente não
+notifica ninguém — nenhum chat/grupo cadastrado recebe ticket que não seja especificamente
+dele (pedido explícito, depois de um vazamento real onde um ticket sem mapeamento acabava
+notificando todo mundo).
 
 **A detecção é por polling, não por webhook.** Investigamos a fundo (self-service da SoftCS,
 inclusive a aba Automações) e não existe webhook de ticket disponível na plataforma — ver
@@ -248,11 +250,12 @@ cadastrar um chat novo (ou abrindo o painel **Membros** de um já existente), d�
 quais agentes fazem parte dele (multi-select, salvo em `chat_agents`) — quando um desses
 agentes é o criador de um ticket que é criado ou atualizado, a notificação vai
 especificamente pro(s) chat(s) onde ele é membro (é o que faz a `@menção` funcionar de
-verdade: Telegram só notifica quem está no grupo). Sem nenhum membro cadastrado pra aquele
-criador, a notificação cai pra todos os **grupos/canais** ativos — nunca pras inscrições
-pessoais via `/status` (`is_personal`), mesmo que estejam ativas. Sem essa exclusão, um ticket
-de um criador qualquer sem mapeamento vazaria pro DM de todo mundo inscrito, não só de quem
-criou (bug real, corrigido em `getTargetChatIds()` — ver `lib/ticket-notify.js`).
+verdade: Telegram só notifica quem está no grupo). **Sem membro cadastrado que bata com o
+criador daquele ticket específico (e sem o cliente estar numa jornada que o chat segue), a
+notificação não vai pra lugar nenhum** — nenhum chat/grupo cadastrado recebe ticket "de
+sobra" (pedido explícito, depois de um vazamento real onde um ticket sem mapeamento acabava
+notificando todo mundo — ver `getTargetChatIds()` em `lib/ticket-notify.js`). Ou seja: um
+chat/grupo só existe pra quem está de fato vinculado a ele.
 
 > ✅ **Resolvido — `refresh_token` funciona, mas não do jeito que a documentação da SoftCS
 > descreve.** Por muito tempo o `access_token` (dura 15min — `expires_in: 900`) nunca vinha
