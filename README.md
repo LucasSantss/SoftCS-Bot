@@ -6,7 +6,9 @@ mais chats do Telegram — com título, estágio, link direto pro ticket
 criou o ticket. A mensagem só vai pro(s) chat(s) onde esse criador está cadastrado como
 membro (aba Chats) — é o único jeito da `@menção` realmente notificar alguém no Telegram, já
 que só funciona se a pessoa for membro do chat/grupo. Se o criador não estiver em nenhum chat
-cadastrado, cai pra todos os chats ativos (sem mention funcional, só o nome).
+cadastrado, cai pra todos os **grupos/canais** ativos (sem mention funcional, só o nome) — as
+inscrições pessoais via `/status` (ver seção 5.1) nunca entram nesse fallback, só recebem
+ticket de quem de fato se inscreveu.
 
 **A detecção é por polling, não por webhook.** Investigamos a fundo (self-service da SoftCS,
 inclusive a aba Automações) e não existe webhook de ticket disponível na plataforma — ver
@@ -230,7 +232,10 @@ quais agentes fazem parte dele (multi-select, salvo em `chat_agents`) — quando
 agentes é o criador de um ticket que é criado ou atualizado, a notificação vai
 especificamente pro(s) chat(s) onde ele é membro (é o que faz a `@menção` funcionar de
 verdade: Telegram só notifica quem está no grupo). Sem nenhum membro cadastrado pra aquele
-criador, a notificação cai pra todos os chats ativos.
+criador, a notificação cai pra todos os **grupos/canais** ativos — nunca pras inscrições
+pessoais via `/status` (`is_personal`), mesmo que estejam ativas. Sem essa exclusão, um ticket
+de um criador qualquer sem mapeamento vazaria pro DM de todo mundo inscrito, não só de quem
+criou (bug real, corrigido em `getTargetChatIds()` — ver `lib/ticket-notify.js`).
 
 > ✅ **Resolvido — `refresh_token` funciona, mas não do jeito que a documentação da SoftCS
 > descreve.** Por muito tempo o `access_token` (dura 15min — `expires_in: 900`) nunca vinha
