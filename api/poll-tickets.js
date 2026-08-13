@@ -14,8 +14,10 @@ import {
 const CURSOR_KEY = 'ticket_poll_cursor';
 
 async function getStageLabels() {
-  const rows = await sql`select stage_id, label, position from stage_labels`;
-  return Object.fromEntries(rows.map((r) => [r.stage_id, { label: r.label, position: r.position }]));
+  const rows = await sql`select stage_id, label, position, is_closed_stage from stage_labels`;
+  return Object.fromEntries(
+    rows.map((r) => [r.stage_id, { label: r.label, position: r.position, is_closed_stage: r.is_closed_stage }])
+  );
 }
 
 // Fase prioritária: reconfirma só os clientes donos de tickets que JÁ estão
@@ -45,9 +47,10 @@ async function handleKnown(seeding) {
   for (const ticketsResponse of ticketLists) {
     if (!ticketsResponse) continue;
     for (const ticket of extractItems(ticketsResponse)) {
-      if (ticket.closedAt) {
-        // Ticket fechado desde a última vez que vimos ele — notifica
+      if (stageLabels[ticket.stageId]?.is_closed_stage) {
+        // Estágio marcado como "encerrado" (ex: Resolvido) — notifica
         // "resolvido" e remove de ticket_state (ver processClosedTicket).
+        // NÃO usa ticket.closedAt pra essa decisão (ver nota em schema.sql).
         const result = await processClosedTicket(ticket, { stageLabels, seeding });
         if (result.notified) notified += 1;
         continue;
@@ -86,7 +89,7 @@ async function handleDiscover(seeding, offset) {
   for (const ticketsResponse of ticketLists) {
     if (!ticketsResponse) continue;
     for (const ticket of extractItems(ticketsResponse)) {
-      if (ticket.closedAt) {
+      if (stageLabels[ticket.stageId]?.is_closed_stage) {
         const result = await processClosedTicket(ticket, { stageLabels, seeding });
         if (result.notified) notified += 1;
         continue;

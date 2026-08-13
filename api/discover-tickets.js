@@ -14,8 +14,10 @@ import {
 } from '../lib/ticket-scan.js';
 
 async function getStageLabels() {
-  const rows = await sql`select stage_id, label, position from stage_labels`;
-  return Object.fromEntries(rows.map((r) => [r.stage_id, { label: r.label, position: r.position }]));
+  const rows = await sql`select stage_id, label, position, is_closed_stage from stage_labels`;
+  return Object.fromEntries(
+    rows.map((r) => [r.stage_id, { label: r.label, position: r.position, is_closed_stage: r.is_closed_stage }])
+  );
 }
 
 // Processa um ticket aberto encontrado ao vivo: grava/compara em
@@ -97,7 +99,7 @@ async function handleKnown(req, res) {
   for (const ticketsResponse of ticketLists) {
     if (!ticketsResponse) continue;
     for (const ticket of extractItems(ticketsResponse)) {
-      if (ticket.closedAt) {
+      if (stageLabels[ticket.stageId]?.is_closed_stage) {
         const result = await processClosedTicket(ticket, { stageLabels, seeding });
         if (result.notified) notified += 1;
         continue;
@@ -242,7 +244,7 @@ export default async function handler(req, res) {
     for (const ticketsResponse of ticketLists) {
       if (!ticketsResponse) continue;
       for (const ticket of extractItems(ticketsResponse)) {
-        if (ticket.closedAt) {
+        if (stageLabels[ticket.stageId]?.is_closed_stage) {
           const result = await processClosedTicket(ticket, { stageLabels, seeding });
           if (result.notified) notified += 1;
           continue;

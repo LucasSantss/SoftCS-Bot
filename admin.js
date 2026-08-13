@@ -406,7 +406,19 @@ function renderKanban(tickets) {
       );
       if (newPositionRaw === null) return; // cancelou
 
-      const body = { stage_id: stage.id, label: newLabel };
+      // A SoftCS não limpa closedAt quando um ticket é reaberto (confirmado
+      // ao vivo — fica com a data do fechamento antigo mesmo com o ticket de
+      // volta numa coluna normal), então não dá pra usar isso pra saber se
+      // um ticket está fechado agora. Em vez disso, cada coluna precisa
+      // dizer se É um estágio de encerramento — ver lib/ticket-notify.js.
+      const isClosedStage = confirm(
+        "Esse estágio representa um ticket ENCERRADO (ex: Resolvido, Resolvido por Inatividade)?\n\n" +
+          "OK = sim, tickets aqui saem do Kanban de abertos e disparam \"ticket resolvido\".\n" +
+          "Cancelar = não, é um estágio normal de trabalho." +
+          (stage.isClosedStage ? "\n\n(Hoje está marcado como SIM.)" : "\n\n(Hoje está marcado como NÃO.)")
+      );
+
+      const body = { stage_id: stage.id, label: newLabel, is_closed_stage: isClosedStage };
       if (newPositionRaw.trim() !== "") {
         const parsed = Number.parseInt(newPositionRaw, 10);
         if (!Number.isNaN(parsed)) body.position = parsed;
@@ -419,6 +431,7 @@ function renderKanban(tickets) {
         for (const ticket of lastTickets) {
           if (ticket.stage.id === stage.id) {
             ticket.stage.name = newLabel;
+            ticket.stage.isClosedStage = isClosedStage;
             if (body.position !== undefined) ticket.stage.position = body.position;
           }
         }

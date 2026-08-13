@@ -87,6 +87,17 @@ create table if not exists stage_labels (
 
 alter table stage_labels add column if not exists position integer;
 
+-- true pra estágios do tipo "encerrado" (ex: Resolvido, Resolvido por
+-- Inatividade) — controla se um ticket que cai aqui é tratado como fechado
+-- (processClosedTicket() em lib/ticket-notify.js: notifica "resolvido" e sai
+-- do Kanban de abertos) em vez de aberto normal. NÃO usa `ticket.closedAt`
+-- da API pra decidir isso — confirmado ao vivo que a SoftCS não limpa esse
+-- campo quando um ticket é reaberto (fica com a data do fechamento antigo
+-- pra sempre, mesmo com o ticket de volta numa coluna normal e ativa), então
+-- esse campo sozinho não é confiável pra saber se o ticket está fechado
+-- *agora*. Configurado manualmente ao renomear a coluna (aba Tickets).
+alter table stage_labels add column if not exists is_closed_stage boolean not null default false;
+
 -- Quais agentes pertencem a cada chat do Telegram. Usado pelo webhook pra
 -- mandar a notificação de um ticket só pro(s) chat(s) onde o criador é
 -- membro — é o único jeito da @menção realmente notificar alguém no Telegram

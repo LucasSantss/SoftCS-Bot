@@ -9,23 +9,30 @@ export default async function handler(req, res) {
   if (!user) return;
 
   if (req.method === 'GET') {
-    const rows = await sql`select stage_id, label, position from stage_labels`;
-    res.status(200).json(Object.fromEntries(rows.map((r) => [r.stage_id, { label: r.label, position: r.position }])));
+    const rows = await sql`select stage_id, label, position, is_closed_stage from stage_labels`;
+    res.status(200).json(
+      Object.fromEntries(
+        rows.map((r) => [r.stage_id, { label: r.label, position: r.position, is_closed_stage: r.is_closed_stage }])
+      )
+    );
     return;
   }
 
   if (req.method === 'POST') {
-    const { stage_id, label, position } = req.body ?? {};
+    const { stage_id, label, position, is_closed_stage } = req.body ?? {};
     if (!stage_id || !label) {
       res.status(400).json({ error: 'stage_id e label são obrigatórios' });
       return;
     }
     const positionValue = position === undefined || position === null || position === '' ? null : Number(position);
+    const isClosedStageValue = Boolean(is_closed_stage);
     await sql`
-      insert into stage_labels (stage_id, label, position) values (${stage_id}, ${label}, ${positionValue})
+      insert into stage_labels (stage_id, label, position, is_closed_stage)
+      values (${stage_id}, ${label}, ${positionValue}, ${isClosedStageValue})
       on conflict (stage_id) do update set
         label = excluded.label,
         position = coalesce(excluded.position, stage_labels.position),
+        is_closed_stage = excluded.is_closed_stage,
         updated_at = now()
     `;
     res.status(200).json({ ok: true });

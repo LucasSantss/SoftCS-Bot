@@ -113,15 +113,30 @@ Painel): cada ticket encontrado é comparado com a tabela `ticket_state`:
 - **Ticket aberto, `stage_id` diferente do salvo** → mudou de coluna → notifica "atualizado"
   e atualiza o estado.
 - **Ticket aberto, `stage_id` igual** → nada acontece.
-- **Ticket com `closedAt` preenchido (fechado/resolvido) e com linha em `ticket_state`** →
-  notifica "resolvido" (`processClosedTicket()`) e **remove** a linha — deixa de existir pro
-  Kanban de abertos. Um ticket que já chega fechado sem nunca ter sido rastreado como aberto
-  (ex: descoberta encontrando um cliente novo com histórico antigo) é ignorado silenciosamente
-  — não tem o que notificar sobre algo que não se sabia que existia.
+- **Ticket cujo `stage_id` atual é um estágio marcado como encerramento
+  (`stage_labels.is_closed_stage`) e tinha linha em `ticket_state`** → notifica "resolvido"
+  (`processClosedTicket()`) e **remove** a linha — deixa de existir pro Kanban de abertos. Um
+  ticket que já chega assim sem nunca ter sido rastreado como aberto (ex: descoberta
+  encontrando um cliente novo com histórico antigo) é ignorado silenciosamente — não tem o que
+  notificar sobre algo que não se sabia que existia.
+
+> ⚠️ **Por que não usamos `ticket.closedAt`**: era a ideia original, mas testado ao vivo — a
+> SoftCS **não limpa `closedAt` quando um ticket é reaberto**. Um ticket fechado ontem e
+> reaberto hoje, de volta numa coluna normal e ativa (confirmado: aparecendo certinho no
+> Kanban da própria SoftCS), continua devolvendo o `closedAt` antigo pra sempre na API pública.
+> Usar esse campo pra decidir "tá fechado?" fazia o ticket sumir do nosso sistema
+> permanentemente assim que fechava uma vez, mesmo reaberto depois. A fonte de verdade agora é
+> `stage_labels.is_closed_stage` — marcado manualmente ao renomear a coluna (pergunta "esse
+> estágio representa um ticket ENCERRADO?") — só estágios como "Resolvido" e "Resolvido por
+> Inatividade" devem estar marcados; qualquer stage sem essa marcação é tratado como aberto,
+> não importa o que `closedAt` diga.
 
 **Limitações conhecidas dessa abordagem** (documentadas, não bugs):
 - Só detecta **criação**, **mudança de estágio** e **fechamento** — outros campos (título,
   prioridade etc.) mudarem sozinhos não dispara nada.
+- Depende de toda coluna de encerramento estar marcada com `is_closed_stage` — uma coluna nova
+  desse tipo que a SoftCS criar (ou uma existente ainda não configurada) é tratada como aberta
+  até alguém marcar (clique no nome da coluna, aba Tickets).
 - Ticket fechado que reabre depois **no mesmo estágio de antes** não é detectado como novo
   evento (a linha já foi removida de `ticket_state` no fechamento, então a próxima varredura
   trata como criação — o que já resolve a maior parte do caso; só não dispara nada se o ticket
@@ -158,14 +173,16 @@ Ou seja: qualquer JSON que já tenha aparecido com nome/e-mail/hash de senha emb
 de um endpoint **interno** da SoftCS (sessão logada no navegador — a tela de "Usuários" em
 Configurações), não da API pública. Pra contornar isso:
 
-- **Nome e ordem da coluna**: clique no nome da coluna no Kanban (aba Tickets) — pede o
-  nome e depois a posição (número; quanto menor, mais à esquerda) e salva os dois em
-  `stage_labels`, usado dali em diante tanto no nosso Kanban quanto no nome do estágio que
-  vai na mensagem do Telegram. Sem posição definida, a coluna cai no fim. É a única forma de
-  fazer nosso board bater com o Kanban real da SoftCS (nome **e** ordem), já que a API
-  pública não devolve nenhum dos dois — confirmado ao vivo, `denormalizedStage`/`stage` vêm
-  sempre `undefined` nela (só o endpoint interno de sessão do navegador tem isso, fora do
-  nosso alcance; se algum payload colado aqui tiver esses campos preenchidos junto com
+- **Nome, ordem e se é encerramento**: clique no nome da coluna no Kanban (aba Tickets) —
+  pede o nome, depois a posição (número; quanto menor, mais à esquerda) e por fim se esse
+  estágio representa um ticket **encerrado** (ex: Resolvido, Resolvido por Inatividade — ver
+  aviso em "Detecção via polling" sobre por que isso é perguntado em vez de detectado
+  sozinho). Salva tudo em `stage_labels`, usado dali em diante tanto no nosso Kanban quanto no
+  nome do estágio que vai na mensagem do Telegram. Sem posição definida, a coluna cai no fim.
+  É a única forma de fazer nosso board bater com o Kanban real da SoftCS (nome **e** ordem),
+  já que a API pública não devolve nenhum dos dois — confirmado ao vivo, `denormalizedStage`/
+  `stage` vêm sempre `undefined` nela (só o endpoint interno de sessão do navegador tem isso,
+  fora do nosso alcance; se algum payload colado aqui tiver esses campos preenchidos junto com
   senha/permissão de usuário, veio de lá, não da API que a gente usa).
 - **Nome/e-mail de quem criou**: cole o payload da tela "Usuários" da SoftCS (JSON, ou o
   texto cru copiado do DevTools) no card "Importar usuários da SoftCS" da aba Agentes —
