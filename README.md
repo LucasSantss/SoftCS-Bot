@@ -428,10 +428,13 @@ com o bot:
   de teclado; tocar num manda o comando daquele grupo.
 - **Comando de cada grupo de jornada** (ex: `/onboarding_ativo`) — liga/alterna a inscrição
   nesse grupo: a pessoa passa a receber, no privado, **todo ticket de qualquer cliente numa
-  das jornadas daquele grupo**, não só os que ela criou. O roteamento por criador (`/status`)
-  e por grupo de jornada são **aditivos** — um ticket pode notificar os dois ao mesmo tempo
-  sem duplicar mensagem no mesmo chat. Mandar o mesmo comando de novo **desliga** só aquele
-  grupo (alterna, não precisa de `/stop`).
+  das jornadas daquele grupo**, não só os que ela criou — e **independente dela estar
+  cadastrada como agente na aba Agentes ou não** (diferente do `/status`: um grupo de jornada
+  é sobre o cliente, não sobre quem está seguindo, então não exige esse cadastro — só precisa
+  ter `@usuário` público no Telegram). O roteamento por criador (`/status`) e por grupo de
+  jornada são **aditivos** — um ticket pode notificar os dois ao mesmo tempo sem duplicar
+  mensagem no mesmo chat. Mandar o mesmo comando de novo **desliga** só aquele grupo (alterna,
+  não precisa de `/stop`).
 - **`/stop`** — desliga tudo de uma vez (o `/status` e qualquer grupo de jornada seguido),
   sem precisar de administrador. Pra reativar, é só mandar os comandos de novo.
 
@@ -457,10 +460,12 @@ chat).
 
 Por segurança, o bot **nunca confia num `@usuário` digitado** pela pessoa — ele usa o
 `@usuário` que o próprio Telegram manda (verificado, vem no update), então não dá pra alguém
-digitar o `@` de um colega e começar a receber os tickets dele. Se a pessoa não tiver
-`@usuário` público configurado no Telegram, ou se não estiver cadastrada na aba Agentes com
-esse mesmo `@`, o bot explica o que falta em vez de aceitar qualquer coisa digitada — vale
-pro `/status` e pro comando de qualquer grupo de jornada.
+digitar o `@` de um colega e começar a receber os tickets dele. Pro `/status`, isso ainda
+exige estar cadastrado na aba Agentes com esse mesmo `@` (é "seus" tickets — precisa confirmar
+quem é a pessoa); pro comando de um grupo de jornada, só exige ter `@usuário` público
+configurado, **não precisa estar cadastrado como agente** (pedido explícito — um grupo de
+jornada é sobre o cliente, não sobre o assinante). Nos dois casos, se a condição não bater, o
+bot explica o que falta em vez de aceitar qualquer coisa digitada.
 
 Pra habilitar esses comandos, é preciso registrar um webhook de entrada (diferente do que já
 existe hoje, que só *envia* mensagem — isso aqui faz o bot *receber*):

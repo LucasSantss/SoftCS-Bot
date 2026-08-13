@@ -141,10 +141,13 @@ async function handleNotifications() {
 // Comando dinâmico de um grupo de jornada (ex: /onboarding_ativo, criado na
 // aba Jornadas): alterna a inscrição (liga se não tinha, desliga se já
 // tinha) — todo ticket cujo cliente esteja em QUALQUER jornada do grupo
-// notifica esse chat, além do roteamento por criador que já existia (ver
-// getTargetChatIds em lib/ticket-notify.js). Mesma restrição de segurança
-// do /status: só quem já está mapeado na aba Agentes (via @usuário
-// verificado pelo próprio Telegram) pode se inscrever.
+// notifica esse chat, independente de quem criou o ticket, e independente
+// de quem está seguindo o grupo ser um agente cadastrado na aba Agentes ou
+// não (pedido explícito — diferente do /status, que é sobre "seus" tickets
+// e por isso precisa confirmar quem é a pessoa; um grupo de jornada é sobre
+// o CLIENTE, não sobre o assinante, então não faz sentido travar isso atrás
+// de um cadastro de agente). Só exige ter um @usuário público no Telegram,
+// pra dar pra identificar o chat na aba Chats.
 async function handleGroupToggle({ chatId, username, command }) {
   if (!username) {
     return (
@@ -153,13 +156,9 @@ async function handleGroupToggle({ chatId, username, command }) {
     );
   }
 
+  // Só usado pra personalizar a saudação (nome) quando bater — não bloqueia
+  // a inscrição se a pessoa não estiver cadastrada como agente.
   const agent = await findAgentByTelegramUsername(username);
-  if (!agent) {
-    return (
-      `Não encontrei @${escapeHtml(username)} cadastrado na aba Agentes do painel. Peça pra um ` +
-      'administrador te mapear lá (com esse mesmo @usuário) e tente de novo.'
-    );
-  }
 
   const groupRows = await sql`select name from journey_groups where command = ${command}`;
   const group = groupRows[0];
@@ -185,7 +184,7 @@ async function handleGroupToggle({ chatId, username, command }) {
 
   await sql`insert into chat_journey_groups (chat_id, command) values (${String(chatId)}, ${command})`;
   return (
-    `Pronto${agent.display_name ? `, ${escapeHtml(agent.display_name)}` : ''}! A partir de agora você recebe ` +
+    `Pronto${agent?.display_name ? `, ${escapeHtml(agent.display_name)}` : ''}! A partir de agora você recebe ` +
     `aqui, no privado, os tickets de clientes em "${escapeHtml(group.name)}" (${journeyNames.map(escapeHtml).join(', ')}) ` +
     `— de qualquer criador, não só os seus. Mande /${command} de novo pra parar.`
   );
