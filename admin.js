@@ -60,10 +60,61 @@ function setStatus(el, message, isError) {
   el.className = "status-line " + (isError ? "error" : "ok");
 }
 
+// ─── Multi-select pesquisável (substitui <select multiple>) ────────────────
+// `container` é qualquer elemento vazio (um <div>, não precisa ser
+// <select>) — usado pra selecionar membros de chat e jornadas de um grupo.
+// `options` é [{ value, label }]; `selectedValues` são os values já
+// marcados. Pra ler o que foi marcado, usa getMultiSelectValues(container).
+function renderMultiSelect(container, options, selectedValues) {
+  const selected = new Set(selectedValues || []);
+  container.innerHTML = `
+    <input type="text" class="multi-select-search" placeholder="Filtrar…" />
+    <div class="multi-select-options"></div>
+  `;
+  const searchInput = container.querySelector(".multi-select-search");
+  const optionsEl = container.querySelector(".multi-select-options");
+
+  function renderOptions(filter) {
+    const term = filter.trim().toLowerCase();
+    optionsEl.innerHTML = "";
+    const filtered = term ? options.filter((o) => o.label.toLowerCase().includes(term)) : options;
+    if (filtered.length === 0) {
+      optionsEl.innerHTML = `<p class="muted" style="padding: 0.4rem 0.5rem; margin: 0;">Nada encontrado.</p>`;
+      return;
+    }
+    for (const opt of filtered) {
+      const label = document.createElement("label");
+      label.className = "multi-select-option";
+      label.innerHTML = `<input type="checkbox" /><span></span>`;
+      const checkbox = label.querySelector("input");
+      checkbox.checked = selected.has(opt.value);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) selected.add(opt.value);
+        else selected.delete(opt.value);
+      });
+      label.querySelector("span").textContent = opt.label;
+      label.dataset.value = opt.value;
+      optionsEl.appendChild(label);
+    }
+  }
+
+  searchInput.addEventListener("input", () => renderOptions(searchInput.value));
+  renderOptions("");
+  container._multiSelectValues = selected;
+}
+
+function getMultiSelectValues(container) {
+  return [...(container._multiSelectValues || [])];
+}
+
 // ─── Agentes ────────────────────────────────────────────────────────────────
 const agentForm = document.getElementById("agentForm");
 const agentStatus = document.getElementById("agentStatus");
-const agentList = document.getElementById("agentList");
+const agentFilter = document.getElementById("agentFilter");
+const agentListRegistered = document.getElementById("agentListRegistered");
+const agentListRegisteredEmpty = document.getElementById("agentListRegisteredEmpty");
+const agentListPending = document.getElementById("agentListPending");
+const agentListPendingEmpty = document.getElementById("agentListPendingEmpty");
 const agentEmpty = document.getElementById("agentEmpty");
 
 // knownAgentIds: quem já tem @ cadastrado (é o que decide badge vs campo pra
@@ -71,22 +122,49 @@ const agentEmpty = document.getElementById("agentEmpty");
 // não — usado como fallback de nome quando o ticket em si não traz um.
 let knownAgentIds = new Set();
 let agentInfoById = new Map();
+let lastAgents = [];
 
 async function loadAgents() {
   try {
-    const agents = await api("/api/agents");
-    knownAgentIds = new Set(agents.filter((a) => a.telegram_username).map((a) => a.softcs_user_id));
-    agentInfoById = new Map(agents.map((a) => [a.softcs_user_id, a]));
-    agentList.innerHTML = "";
-    agentEmpty.style.display = agents.length ? "none" : "block";
-    for (const agent of agents) renderAgentRow(agent);
+    lastAgents = await api("/api/agents");
+    knownAgentIds = new Set(lastAgents.filter((a) => a.telegram_username).map((a) => a.softcs_user_id));
+    agentInfoById = new Map(lastAgents.map((a) => [a.softcs_user_id, a]));
+    renderAgentLists(agentFilter.value);
     if (lastCreators.length) renderCreators(lastCreators);
   } catch (err) {
     setStatus(agentStatus, err.message, true);
   }
 }
 
-function renderAgentRow(agent) {
+// Separa quem já tem @ cadastrado de quem não tem (duas listas, mais fácil
+// de organizar o time do que uma lista só misturada) — e filtra pelo termo
+// digitado em qualquer um dos campos visíveis (nome, e-mail, @, ID).
+function renderAgentLists(filterTerm) {
+  const term = (filterTerm || "").trim().toLowerCase();
+  const matches = (agent) =>
+    !term ||
+    [agent.display_name, agent.email, agent.telegram_username, agent.softcs_user_id]
+      .filter(Boolean)
+      .some((field) => field.toLowerCase().includes(term));
+
+  const filtered = lastAgents.filter(matches);
+  const registered = filtered.filter((a) => a.telegram_username);
+  const pending = filtered.filter((a) => !a.telegram_username);
+
+  agentListRegistered.innerHTML = "";
+  agentListRegisteredEmpty.style.display = registered.length ? "none" : "block";
+  for (const agent of registered) renderAgentRow(agent, agentListRegistered);
+
+  agentListPending.innerHTML = "";
+  agentListPendingEmpty.style.display = pending.length ? "none" : "block";
+  for (const agent of pending) renderAgentRow(agent, agentListPending);
+
+  agentEmpty.style.display = lastAgents.length ? "none" : "block";
+}
+
+agentFilter.addEventListener("input", () => renderAgentLists(agentFilter.value));
+
+function renderAgentRow(agent, container) {
   const row = document.createElement("div");
   row.className = "list-item";
   row.innerHTML = `
@@ -152,7 +230,7 @@ function renderAgentRow(agent) {
   });
   actions.appendChild(deleteBtn);
 
-  agentList.appendChild(row);
+  container.appendChild(row);
 }
 
 agentForm.addEventListener("submit", async (event) => {
@@ -623,19 +701,15 @@ const personalChatList = document.getElementById("personalChatList");
 const personalChatEmpty = document.getElementById("personalChatEmpty");
 const newChatMembers = document.getElementById("newChatMembers");
 
-// Preenche um <select multiple> com todos os agentes conhecidos, marcando os
-// que já pertencem ao chat (selectedIds). Usado no form "Novo chat" e no
-// painel de edição de membros de cada chat existente.
-function populateAgentOptions(selectEl, selectedIds) {
-  const selected = new Set(selectedIds || []);
-  selectEl.innerHTML = "";
-  for (const agent of agentInfoById.values()) {
-    const option = document.createElement("option");
-    option.value = agent.softcs_user_id;
-    option.textContent = `${agent.display_name || agent.email || agent.softcs_user_id}${agent.telegram_username ? " (@" + agent.telegram_username + ")" : " (sem @)"}`;
-    option.selected = selected.has(agent.softcs_user_id);
-    selectEl.appendChild(option);
-  }
+// Monta o multi-select pesquisável com todos os agentes conhecidos,
+// marcando os que já pertencem ao chat (selectedIds). Usado no form "Novo
+// chat" e no painel de edição de membros de cada chat existente.
+function populateAgentOptions(container, selectedIds) {
+  const options = [...agentInfoById.values()].map((agent) => ({
+    value: agent.softcs_user_id,
+    label: `${agent.display_name || agent.email || agent.softcs_user_id}${agent.telegram_username ? " (@" + agent.telegram_username + ")" : " (sem @)"}`,
+  }));
+  renderMultiSelect(container, options, selectedIds);
 }
 
 async function loadChats() {
@@ -741,13 +815,13 @@ function renderChatRow(chat, container) {
     membersPanel.style.display = "none";
     membersPanel.style.margin = "0.5rem 0 0.75rem";
     membersPanel.innerHTML = `
-      <select multiple size="6"></select>
+      <div class="multi-select"></div>
       <div class="form-actions" style="margin-top: 0.5rem;">
         <button type="button" class="btn btn-primary save-members-btn">Salvar membros</button>
         <span class="members-status status-line"></span>
       </div>
     `;
-    const membersSelect = membersPanel.querySelector("select");
+    const membersSelect = membersPanel.querySelector(".multi-select");
     const membersStatus = membersPanel.querySelector(".members-status");
 
     row.querySelector(".members-btn").addEventListener("click", () => {
@@ -762,7 +836,7 @@ function renderChatRow(chat, container) {
 
     membersPanel.querySelector(".save-members-btn").addEventListener("click", async (event) => {
       const btn = event.currentTarget;
-      const memberIds = Array.from(membersSelect.selectedOptions).map((o) => o.value);
+      const memberIds = getMultiSelectValues(membersSelect);
       btn.disabled = true;
       try {
         await api("/api/chats", {
@@ -788,7 +862,7 @@ function renderChatRow(chat, container) {
 
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const memberIds = Array.from(newChatMembers.selectedOptions).map((o) => o.value);
+  const memberIds = getMultiSelectValues(newChatMembers);
   const data = {
     chat_id: chatForm.elements.chat_id.value.trim(),
     label: chatForm.elements.label.value.trim(),
@@ -831,16 +905,12 @@ journeyGroupForm.elements.name.addEventListener("input", () => {
   journeyGroupCommandPreview.textContent = slug ? `Vira o comando: /${slug}` : "";
 });
 
-function populateJourneyOptions(selectEl, knownNames, selectedNames) {
-  const selected = new Set(selectedNames || []);
-  selectEl.innerHTML = "";
-  for (const name of knownNames) {
-    const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    option.selected = selected.has(name);
-    selectEl.appendChild(option);
-  }
+function populateJourneyOptions(container, knownNames, selectedNames) {
+  renderMultiSelect(
+    container,
+    knownNames.map((name) => ({ value: name, label: name })),
+    selectedNames
+  );
 }
 
 async function loadJourneyGroups() {
@@ -891,13 +961,13 @@ function renderJourneyGroupRow(group, knownJourneyNames) {
   editPanel.style.display = "none";
   editPanel.style.margin = "0.5rem 0 0.75rem";
   editPanel.innerHTML = `
-    <select multiple size="6"></select>
+    <div class="multi-select"></div>
     <div class="form-actions" style="margin-top: 0.5rem;">
       <button type="button" class="btn btn-primary save-btn">Salvar</button>
       <span class="edit-status status-line"></span>
     </div>
   `;
-  const editSelect = editPanel.querySelector("select");
+  const editSelect = editPanel.querySelector(".multi-select");
   const editStatus = editPanel.querySelector(".edit-status");
 
   row.querySelector(".edit-btn").addEventListener("click", () => {
@@ -912,7 +982,7 @@ function renderJourneyGroupRow(group, knownJourneyNames) {
 
   editPanel.querySelector(".save-btn").addEventListener("click", async (event) => {
     const btn = event.currentTarget;
-    const journeyNames = Array.from(editSelect.selectedOptions).map((o) => o.value);
+    const journeyNames = getMultiSelectValues(editSelect);
     if (journeyNames.length === 0) {
       setStatus(editStatus, "Selecione pelo menos uma jornada.", true);
       return;
@@ -938,7 +1008,7 @@ function renderJourneyGroupRow(group, knownJourneyNames) {
 
 journeyGroupForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const journeyNames = Array.from(newJourneyGroupJourneys.selectedOptions).map((o) => o.value);
+  const journeyNames = getMultiSelectValues(newJourneyGroupJourneys);
   if (journeyNames.length === 0) {
     setStatus(journeyGroupStatus, "Selecione pelo menos uma jornada.", true);
     return;

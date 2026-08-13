@@ -151,7 +151,20 @@
             </div>
           </div>
 
-          <div class="list" id="agentList"></div>
+          <input type="text" id="agentFilter" placeholder="Filtrar por nome, e-mail, @ ou ID…" />
+
+          <h3 style="margin: 1rem 0 0.5rem;">Com @ cadastrado</h3>
+          <div class="list" id="agentListRegistered"></div>
+          <div class="empty-state" id="agentListRegisteredEmpty" style="display:none">
+            <p class="muted">Ninguém com @ cadastrado ainda.</p>
+          </div>
+
+          <h3 style="margin: 1.5rem 0 0.5rem;">Sem @ cadastrado</h3>
+          <div class="list" id="agentListPending"></div>
+          <div class="empty-state" id="agentListPendingEmpty" style="display:none">
+            <p class="muted">Todo mundo já tem @ cadastrado.</p>
+          </div>
+
           <div class="empty-state" id="agentEmpty" style="display:none">
             <p>Nenhum agente cadastrado ainda.</p>
           </div>
@@ -177,7 +190,7 @@
                 Membros desse chat (quem deve ser mencionado quando um ticket criado por
                 eles for atualizado) — Ctrl/Cmd+clique pra selecionar vários
               </label>
-              <select name="member_ids" id="newChatMembers" multiple size="6"></select>
+              <div id="newChatMembers" class="multi-select"></div>
             </form>
             <p id="chatStatus" class="status-line"></p>
           </div>
@@ -222,7 +235,7 @@
               <label class="field-label" style="margin-top: 0.75rem;">
                 Jornadas desse grupo — Ctrl/Cmd+clique pra selecionar várias
               </label>
-              <select name="journey_names" id="newJourneyGroupJourneys" multiple size="6"></select>
+              <div id="newJourneyGroupJourneys" class="multi-select"></div>
               <p class="muted" id="journeyGroupJourneysEmpty" style="display:none; margin-top: 0.35rem;">
                 Nenhuma jornada vista ainda — aparecem aqui conforme a descoberta de tickets
                 (aba Tickets) for encontrando clientes com jornada ativa.

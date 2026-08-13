@@ -198,6 +198,34 @@ input::placeholder, textarea::placeholder { color: var(--muted-foreground); }
 .badge.on { background: hsl(152 60% 42% / 0.15); color: var(--success); }
 .badge.off { background: hsl(0 60% 45% / 0.15); color: var(--destructive); }
 
+/* ─── Multi-select pesquisável (substitui <select multiple>) ───
+   Usado pra selecionar membros de chat e jornadas de um grupo — mais fácil
+   de usar (marca/desmarca com um clique, sem precisar de Ctrl/Cmd+clique) e
+   filtra por texto quando a lista é grande. */
+.multi-select {
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--input);
+  overflow: hidden;
+}
+.multi-select-search {
+  border: none !important;
+  border-bottom: 1px solid var(--border) !important;
+  border-radius: 0 !important;
+}
+.multi-select-search:focus { border-bottom-color: var(--primary) !important; }
+.multi-select-options { max-height: 190px; overflow-y: auto; padding: 0.3rem; }
+.multi-select-option {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.45rem 0.5rem; border-radius: 0.45rem;
+  font-size: 0.85rem; cursor: pointer;
+}
+.multi-select-option:hover { background: var(--secondary); }
+.multi-select-option input[type="checkbox"] {
+  width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--primary); cursor: pointer;
+}
+.multi-select-count { font-size: 0.75rem; color: var(--muted-foreground); margin: 0.35rem 0 0; }
+
 .status-line { font-size: 0.8rem; margin-top: 0.6rem; min-height: 1.2em; }
 .status-line.error { color: var(--destructive); }
 .status-line.ok { color: var(--success); }
