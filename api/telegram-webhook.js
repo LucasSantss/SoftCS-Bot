@@ -5,12 +5,13 @@ import { keyboardMarkup, inlineLinkMarkup } from '../lib/telegram-keyboards.js';
 const TICKETS_BOARD_URL = 'https://admin.softcs.com.br/pt-br/tickets';
 
 // Recebe updates do bot do Telegram (mensagens mandadas pra ele) — configurado
-// via setWebhook, ver README. Só existe por causa dos comandos /start,
-// /status, /stop, /notificacoes e dos comandos dinâmicos de cada grupo de
-// jornada (aba Jornadas — ver handleGroupToggle); nenhum outro comando é
-// tratado ainda. Não exige sessão (é o Telegram que chama isso, não um
-// navegador logado) — autenticado pelo header secreto que o Telegram
-// reenvia em toda chamada (setWebhook com secret_token), não por cookie.
+// via setWebhook, ver README. Trata /id (funciona em qualquer chat — grupo,
+// canal ou privado) e /start, /status, /stop, /notificacoes e os comandos
+// dinâmicos de cada grupo de jornada (só no privado — ver handleGroupToggle);
+// nenhum outro comando é tratado ainda. Não exige sessão (é o Telegram que
+// chama isso, não um navegador logado) — autenticado pelo header secreto que
+// o Telegram reenvia em toda chamada (setWebhook com secret_token), não por
+// cookie.
 async function findAgentByTelegramUsername(username) {
   const rows = await sql`
     select softcs_user_id, display_name from agent_mapping
@@ -18,6 +19,23 @@ async function findAgentByTelegramUsername(username) {
     limit 1
   `;
   return rows[0] ?? null;
+}
+
+// /id: funciona em QUALQUER chat (grupo, canal, privado — diferente de todo
+// resto, que só faz sentido no privado), pra facilitar descobrir o chat_id
+// na hora de cadastrar um chat na aba Chats, sem precisar caçar em
+// getUpdates manualmente. Se mandado dentro de um Tópico (grupo em modo
+// fórum), o próprio update já traz message_thread_id — devolve ele também,
+// e responde no mesmo tópico (ver handler abaixo).
+function handleId({ chat, messageThreadId }) {
+  const lines = [`ID deste chat: <code>${chat.id}</code>`];
+  if (chat.type !== 'private') {
+    lines.push(`Tipo: ${escapeHtml(chat.type)}${chat.title ? ` — "${escapeHtml(chat.title)}"` : ''}`);
+  }
+  if (messageThreadId) {
+    lines.push(`ID do tópico (thread_id): <code>${messageThreadId}</code>`);
+  }
+  return lines.join('\n');
 }
 
 // /start: primeira mensagem que o Telegram manda quando alguém abre o chat
@@ -195,14 +213,33 @@ export default async function handler(req, res) {
   const message = update.message;
 
   // Sempre responde 200 pro Telegram não ficar reentregando o mesmo update —
-  // qualquer coisa que não seja mensagem privada de texto é só ignorada.
-  if (!message || message.chat?.type !== 'private' || typeof message.text !== 'string') {
+  // qualquer coisa que não seja mensagem de texto é só ignorada.
+  if (!message || typeof message.text !== 'string') {
     res.status(200).json({ ok: true, skipped: true });
     return;
   }
 
   const { command } = parseCommand(message.text);
   if (!command) {
+    res.status(200).json({ ok: true, skipped: true });
+    return;
+  }
+
+  // /id é o único comando que funciona fora do privado (grupo, canal) —
+  // todo o resto abaixo é pessoal, exige DM.
+  if (command === 'id') {
+    try {
+      const reply = handleId({ chat: message.chat, messageThreadId: message.message_thread_id });
+      await sendTelegramMessageToChat(message.chat.id, reply, message.message_thread_id);
+      res.status(200).json({ ok: true });
+    } catch (error) {
+      console.error('Erro processando /id:', error);
+      res.status(200).json({ ok: true, error: error.message });
+    }
+    return;
+  }
+
+  if (message.chat?.type !== 'private') {
     res.status(200).json({ ok: true, skipped: true });
     return;
   }

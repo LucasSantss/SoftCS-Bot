@@ -375,12 +375,13 @@ Na aba **Agentes**, preencha o `@` de cada criador que aparecer em "Criadores
 encontrados" e clique em **Salvar todos preenchidos** (ou cadastre manualmente).
 
 Na aba **Chats**, cadastre cada grupo/canal que deve receber as notificações. Descubra o
-`chat_id` enviando uma mensagem no grupo (com o bot já adicionado) e acessando
-`https://api.telegram.org/bot<TOKEN>/getUpdates` — o `chat.id` aparece no JSON
-(grupos costumam ter id negativo). Use o botão **Testar** pra confirmar. Marque também
-quais agentes são membros daquele chat (select múltiplo no formulário, ou no painel
-**Membros** de um chat já cadastrado) — só assim a notificação de ticket vai parar
-especificamente ali quando um desses agentes for o criador.
+`chat_id` mandando `/id` no grupo (com o bot já adicionado) — funciona mesmo com o webhook
+de entrada registrado (diferente de `getUpdates`, que só funciona sem webhook — os dois são
+mutuamente exclusivos na Bot API). O bot responde ali mesmo com o `chat.id` (grupos costumam
+ter id negativo). Use o botão **Testar** pra confirmar. Marque também quais agentes são
+membros daquele chat (select múltiplo no formulário, ou no painel **Membros** de um chat já
+cadastrado) — só assim a notificação de ticket vai parar especificamente ali quando um desses
+agentes for o criador.
 
 > **Importante sobre a menção `@username`**: o Telegram só notifica a pessoa se ela
 > (a) tiver um `@username` público configurado e (b) for membro do chat/grupo onde o
@@ -391,16 +392,23 @@ especificamente ali quando um desses agentes for o criador.
 grupo com abas/subdivisões tipo "Geral", "Notificações") têm **Tópicos**, cada um com seu
 próprio `thread_id` — sem preencher isso, a mensagem vai pro grupo inteiro (tópico "Geral").
 A API do Telegram não lista os tópicos existentes, só devolve o id de um quando alguém posta
-nele — pra descobrir: mande qualquer mensagem dentro do tópico desejado (com o bot no grupo)
-e acesse `https://api.telegram.org/bot<TOKEN>/getUpdates`; o `message_thread_id` aparece no
-JSON da mensagem. Cole esse número no campo "thread_id do tópico" ao cadastrar o chat (ou
-edite depois direto no banco, `update telegram_chats set thread_id = '...' where chat_id =
-'...'`) — o `chat_id` continua sendo o do grupo, igual a qualquer outro chat.
+nele — pra descobrir: mande `/id` **dentro do tópico desejado** (não no "Geral"); o bot
+responde ali mesmo com o `chat.id` **e** o `thread_id` desse tópico (o comando lê
+`message_thread_id` direto do update, quando existe). Cole esse número no campo "thread_id do
+tópico" ao cadastrar o chat (ou edite depois direto no banco, `update telegram_chats set
+thread_id = '...' where chat_id = '...'`) — o `chat_id` continua sendo o do grupo, igual a
+qualquer outro chat.
 
 **Aba Jornadas**: cadastra grupos de jornada — ver seção 5.1 abaixo pra como isso vira comando
 no bot e como a inscrição funciona pro lado de quem usa o Telegram.
 
-### 5.1. Comandos do bot e grupos de jornada (inscrição pessoal no privado)
+### 5.1. Comandos do bot e grupos de jornada
+
+- **`/id`** — o único comando que funciona em **qualquer chat** (grupo, canal, privado), não
+  só no privado. Responde com o `chat.id` na hora (e o `thread_id` do Tópico, se mandado
+  dentro de um) — é como descobrir esses valores pra cadastrar na aba Chats, sem precisar de
+  `getUpdates` manual (que nem funciona mais depois que o webhook de entrada é registrado —
+  os dois são mutuamente exclusivos na Bot API).
 
 Além de mandar notificação pros grupos/chats cadastrados, um agente pode falar **no privado**
 com o bot:
@@ -600,9 +608,10 @@ api/
   import-agents.js                importa nome/e-mail em lote (JSON ou stream RSC colado)
   telegram-test.js                  manda uma mensagem de teste pra um chat_id (botão "Testar")
   telegram-webhook.js                 recebe update de ENTRADA do bot (Telegram chamando a
-                                     gente, não o contrário) — trata /start, /status, /stop,
-                                     /notificacoes e o comando dinâmico de cada grupo de
-                                     jornada (ver README seção 5.1). Autenticado pelo header
+                                     gente, não o contrário) — trata /id (funciona em
+                                     qualquer chat), /start, /status, /stop, /notificacoes e
+                                     o comando dinâmico de cada grupo de jornada (só no
+                                     privado — ver README seção 5.1). Autenticado pelo header
                                      secreto do setWebhook (TELEGRAM_WEBHOOK_SECRET), não por
                                      sessão nem CRON_SECRET
 vercel.json            reescreve /api/auth-start, /api/auth-callback, /api/auth-logout,
