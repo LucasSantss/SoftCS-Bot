@@ -1,6 +1,6 @@
 import sql from '../lib/db.js';
 import { getValidAccessToken, getClients, getClientTickets, renewTokenAtCycleEnd } from '../lib/softcs-api.js';
-import { processTicket, SEED_FLAG_KEY } from '../lib/ticket-notify.js';
+import { processTicket, processClosedTicket, SEED_FLAG_KEY } from '../lib/ticket-notify.js';
 import { getSetting, setSettings } from '../lib/settings.js';
 import {
   CLIENT_PAGE_LIMIT,
@@ -45,7 +45,13 @@ async function handleKnown(seeding) {
   for (const ticketsResponse of ticketLists) {
     if (!ticketsResponse) continue;
     for (const ticket of extractItems(ticketsResponse)) {
-      if (ticket.closedAt) continue; // só tickets abertos
+      if (ticket.closedAt) {
+        // Ticket fechado desde a última vez que vimos ele — notifica
+        // "resolvido" e remove de ticket_state (ver processClosedTicket).
+        const result = await processClosedTicket(ticket, { stageLabels, seeding });
+        if (result.notified) notified += 1;
+        continue;
+      }
       ticketsSeen += 1;
       const result = await processTicket(ticket, { stageLabels, clientName: extractClientName(ticket), seeding });
       if (result.notified) notified += 1;
@@ -80,7 +86,11 @@ async function handleDiscover(seeding, offset) {
   for (const ticketsResponse of ticketLists) {
     if (!ticketsResponse) continue;
     for (const ticket of extractItems(ticketsResponse)) {
-      if (ticket.closedAt) continue; // só tickets abertos
+      if (ticket.closedAt) {
+        const result = await processClosedTicket(ticket, { stageLabels, seeding });
+        if (result.notified) notified += 1;
+        continue;
+      }
       ticketsSeen += 1;
       const result = await processTicket(ticket, {
         stageLabels,

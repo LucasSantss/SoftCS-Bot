@@ -139,11 +139,10 @@ create table if not exists google_oauth_state (
 -- criação); um ticket cujo stage_id mudou desde a última varredura é
 -- "atualizado" (dispara notificação de movimentação). title/priority/
 -- client_name são só cosméticos (mantidos frescos a cada varredura, não
--- entram na decisão de notificar). Tickets fechados simplesmente somem das
--- varreduras (só listam tickets abertos) e a linha correspondente fica
--- órfã — não é limpa automaticamente; se o ticket reabrir depois no mesmo
--- estágio, a mudança não é detectada (limitação conhecida, tickets
--- reabertos são raros o bastante pra não valer a complexidade extra agora).
+-- entram na decisão de notificar). Um ticket com closedAt preenchido que
+-- tinha linha aqui dispara "resolvido" (processClosedTicket() em
+-- lib/ticket-notify.js) e a linha é removida — deixa de existir pro Kanban
+-- de abertos, não fica órfã.
 create table if not exists ticket_state (
   ticket_id text primary key,
   public_id text,

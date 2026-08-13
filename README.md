@@ -103,22 +103,28 @@ funciona como override manual pra debug. (Os intervalos exatos — 2min/10min �
 configurados no próprio cron-job.org, não no código; ajustável a qualquer momento por lá sem
 precisar de deploy.)
 
-As duas fases usam a mesma lógica de comparação (`processTicket()` em `lib/ticket-notify.js`,
-compartilhado também com `api/discover-tickets.js` — ver seção do Painel): cada ticket
-aberto encontrado é comparado com a tabela `ticket_state`:
+As duas fases usam a mesma lógica de comparação (`processTicket()`/`processClosedTicket()` em
+`lib/ticket-notify.js`, compartilhado também com `api/discover-tickets.js` — ver seção do
+Painel): cada ticket encontrado é comparado com a tabela `ticket_state`:
 
-- **Sem linha anterior** → ticket novo → notifica "criado" e grava o estado.
-- **`stage_id` diferente do salvo** → ticket mudou de coluna → notifica "atualizado" e
-  atualiza o estado.
-- **`stage_id` igual** → nada acontece.
+- **Ticket aberto, sem linha anterior** → novo → notifica "criado" e grava o estado.
+- **Ticket aberto, `stage_id` diferente do salvo** → mudou de coluna → notifica "atualizado"
+  e atualiza o estado.
+- **Ticket aberto, `stage_id` igual** → nada acontece.
+- **Ticket com `closedAt` preenchido (fechado/resolvido) e com linha em `ticket_state`** →
+  notifica "resolvido" (`processClosedTicket()`) e **remove** a linha — deixa de existir pro
+  Kanban de abertos. Um ticket que já chega fechado sem nunca ter sido rastreado como aberto
+  (ex: descoberta encontrando um cliente novo com histórico antigo) é ignorado silenciosamente
+  — não tem o que notificar sobre algo que não se sabia que existia.
 
 **Limitações conhecidas dessa abordagem** (documentadas, não bugs):
-- Só detecta **criação** e **mudança de estágio** — outros campos (título, prioridade
-  etc.) mudarem sozinhos não dispara nada. Foi o que foi pedido ("movimentações dos
-  tickets").
-- Ticket fechado simplesmente some das varreduras (só listamos abertos); a linha em
-  `ticket_state` fica órfã. Se reabrir depois **no mesmo estágio**, a mudança não é
-  detectada (caso raro, não vale a complexidade extra agora).
+- Só detecta **criação**, **mudança de estágio** e **fechamento** — outros campos (título,
+  prioridade etc.) mudarem sozinhos não dispara nada.
+- Ticket fechado que reabre depois **no mesmo estágio de antes** não é detectado como novo
+  evento (a linha já foi removida de `ticket_state` no fechamento, então a próxima varredura
+  trata como criação — o que já resolve a maior parte do caso; só não dispara nada se o ticket
+  for reaberto e fechado de novo tudo dentro do mesmo ciclo de polling, sem nenhuma varredura
+  no meio).
 - **Atraso de até ~10 minutos** (2min pra tickets já conhecidos) entre a mudança acontecer na
   SoftCS e a mensagem chegar no Telegram — não é tempo real como um webhook seria.
 - **Modo seed**: na primeiríssima varredura depois de configurado, `ticket_state` está
