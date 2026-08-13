@@ -681,9 +681,11 @@ function renderChatRow(chat, container) {
   row.querySelector(".list-item-title").textContent = chat.is_personal
     ? chat.agent_display_name || chat.label || "(sem nome)"
     : chat.label || "(sem rótulo)";
-  row.querySelector(".list-item-sub").textContent = chat.thread_id
-    ? `${chat.chat_id} · tópico ${chat.thread_id}`
-    : chat.chat_id;
+  const subParts = [chat.thread_id ? `${chat.chat_id} · tópico ${chat.thread_id}` : chat.chat_id];
+  if (chat.is_personal && (chat.journey_names || []).length) {
+    subParts.push(`jornadas: ${chat.journey_names.join(", ")}`);
+  }
+  row.querySelector(".list-item-sub").textContent = subParts.join(" — ");
 
   const testResult = row.querySelector(".test-result");
   row.querySelector(".test-btn").addEventListener("click", async (event) => {

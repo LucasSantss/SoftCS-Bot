@@ -180,3 +180,28 @@ alter table ticket_state add column if not exists client_name text;
 -- nota em api/poll-tickets.js), sem depender de reencontrar o cliente numa
 -- varredura completa da conta.
 alter table ticket_state add column if not exists client_id text;
+
+-- Nomes das jornadas (Customer Success) que o cliente dono do ticket está
+-- em cada uma — a API pública devolve isso já pronto por cliente
+-- (`GET /clients` -> `journeys[].journeyName`, sem precisar mapear ID pra
+-- nome como acontece com stageId). Só populado durante a fase de
+-- descoberta (api/poll-tickets.js handleDiscover / api/discover-tickets.js
+-- default), que já busca a lista de clientes inteira; a fase known não tem
+-- os objetos de cliente disponíveis (só o client_id), então preserva o
+-- valor já salvo em vez de apagar. Usado por getTargetChatIds() em
+-- lib/ticket-notify.js pra rotear notificação pros chats inscritos numa
+-- jornada (ver chat_journeys), além do roteamento por criador que já existia.
+alter table ticket_state add column if not exists journey_names text[];
+
+-- Inscrição de um chat (grupo ou DM pessoal via /jornada — ver
+-- api/telegram-webhook.js) num nome de jornada: todo ticket cujo cliente
+-- esteja nessa jornada notifica esse chat, além do roteamento por criador.
+-- journey_name guarda o texto exatamente como aparece em
+-- ticket_state.journey_names (case sensitivo — o comando /jornada resolve
+-- a grafia certa comparando sem diferenciar maiúsculas/minúsculas antes de
+-- gravar aqui).
+create table if not exists chat_journeys (
+  chat_id text not null references telegram_chats (chat_id) on delete cascade,
+  journey_name text not null,
+  primary key (chat_id, journey_name)
+);

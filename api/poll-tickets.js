@@ -8,6 +8,7 @@ import {
   TICKET_CONCURRENCY,
   extractItems,
   extractClientName,
+  extractJourneyNames,
   mapWithConcurrency,
 } from '../lib/ticket-scan.js';
 
@@ -74,6 +75,7 @@ async function handleDiscover(seeding, offset) {
   const clientsResponse = await getClients(CLIENT_PAGE_LIMIT, offset);
   const clients = extractItems(clientsResponse);
   const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
+  const clientJourneyById = new Map(clients.map((c) => [c.id, extractJourneyNames(c)]));
   const clientPagination = clientsResponse?.pagination;
 
   const ticketLists = await mapWithConcurrency(clients, TICKET_CONCURRENCY, (client) =>
@@ -98,6 +100,7 @@ async function handleDiscover(seeding, offset) {
       const result = await processTicket(ticket, {
         stageLabels,
         clientName: extractClientName(ticket, clientNameById),
+        journeyNames: clientJourneyById.get(ticket.mainClientId) ?? null,
         seeding,
       });
       if (result.notified) notified += 1;

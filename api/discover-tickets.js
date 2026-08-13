@@ -10,6 +10,7 @@ import {
   extractItems,
   extractCreator,
   extractClientName,
+  extractJourneyNames,
   mapWithConcurrency,
 } from '../lib/ticket-scan.js';
 
@@ -25,11 +26,12 @@ async function getStageLabels() {
 // processTicket() em lib/ticket-notify.js — a busca manual "Buscar tickets"
 // não é só um preview, ela também alimenta e dispara notificação igual ao
 // polling), e monta o objeto de exibição pro Kanban com o stage já resolvido.
-async function processAndBuildEntry(ticket, { stageLabels, clientNameById, seeding }) {
+async function processAndBuildEntry(ticket, { stageLabels, clientNameById, clientJourneyById, seeding }) {
   const creator = extractCreator(ticket);
   const { stage, notified } = await processTicket(ticket, {
     stageLabels,
     clientName: extractClientName(ticket, clientNameById),
+    journeyNames: clientJourneyById?.get(ticket.mainClientId) ?? null,
     seeding,
   });
 
@@ -225,6 +227,7 @@ export default async function handler(req, res) {
     const clientsResponse = await getClients(CLIENT_PAGE_LIMIT, offset);
     const clients = extractItems(clientsResponse);
     const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
+    const clientJourneyById = new Map(clients.map((c) => [c.id, extractJourneyNames(c)]));
     const clientPagination = clientsResponse?.pagination;
 
     const stageLabels = await getStageLabels();
@@ -252,6 +255,7 @@ export default async function handler(req, res) {
         const { entry, creator, notified: didNotify } = await processAndBuildEntry(ticket, {
           stageLabels,
           clientNameById,
+          clientJourneyById,
           seeding,
         });
         if (creator?.name) hasNames = true;

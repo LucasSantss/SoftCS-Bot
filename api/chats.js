@@ -10,16 +10,23 @@ export default async function handler(req, res) {
       select
         c.chat_id, c.label, c.active, c.thread_id, c.is_personal, c.created_at,
         coalesce(
-          json_agg(a.softcs_user_id) filter (where a.softcs_user_id is not null),
+          json_agg(distinct a.softcs_user_id) filter (where a.softcs_user_id is not null),
           '[]'
         ) as member_ids,
         -- só populado quando is_personal (uma inscrição via /status sempre tem
         -- exatamente um membro, o próprio dono do chat) — nome pra exibir na UI
         -- em vez do chat_id cru, ver aba Chats.
-        max(am.display_name) filter (where c.is_personal) as agent_display_name
+        max(am.display_name) filter (where c.is_personal) as agent_display_name,
+        -- jornadas seguidas via /jornada (ver api/telegram-webhook.js) —
+        -- distinto de member_ids/chat_agents (roteamento por criador).
+        coalesce(
+          json_agg(distinct j.journey_name) filter (where j.journey_name is not null),
+          '[]'
+        ) as journey_names
       from telegram_chats c
       left join chat_agents a on a.chat_id = c.chat_id
       left join agent_mapping am on am.softcs_user_id = a.softcs_user_id
+      left join chat_journeys j on j.chat_id = c.chat_id
       group by c.chat_id, c.label, c.active, c.thread_id, c.is_personal, c.created_at
       order by c.created_at desc
     `;

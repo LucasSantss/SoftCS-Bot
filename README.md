@@ -397,7 +397,7 @@ JSON da mensagem. Cole esse número no campo "thread_id do tópico" ao cadastrar
 edite depois direto no banco, `update telegram_chats set thread_id = '...' where chat_id =
 '...'`) — o `chat_id` continua sendo o do grupo, igual a qualquer outro chat.
 
-### 5.1. Comandos `/status` e `/stop` (inscrição pessoal no privado)
+### 5.1. Comandos `/status`, `/stop`, `/jornada` e `/jornadas` (inscrição pessoal no privado)
 
 Além de mandar notificação pros grupos/chats cadastrados, um agente pode falar **no privado**
 com o bot e mandar `/status` — se o `@usuário` do Telegram dele bater com o que está
@@ -407,16 +407,33 @@ de qualquer atualização/mudança no sistema — não precisa repetir o comando
 parar, a própria pessoa manda `/stop` a qualquer momento (desativa só o chat dela, sem precisar
 de administrador); pra reativar depois, é só mandar `/status` de novo.
 
-Cada inscrição via `/status` (`telegram_chats.is_personal = true`) aparece na aba **Chats**,
-numa lista separada dos grupos ("Inscrições pessoais") — mostra o nome do agente, permite
-desativar manualmente e testar o envio, igual a qualquer outro chat, só sem o painel de
-membros (aqui o "membro" é sempre o próprio dono do chat).
+**`/jornada NOME`** funciona parecido, mas por **jornada do cliente** (Customer Success —
+Onboarding, Engajamento etc.) em vez de por criador do ticket: a API pública já devolve o
+nome da jornada pronto por cliente (`GET /clients` → `journeys[].journeyName`, sem precisar
+de mapeamento manual tipo os estágios do Kanban — ver `extractJourneyNames()` em
+`lib/ticket-scan.js`). Quem manda `/jornada Implantação Oficial` passa a receber, no privado,
+**todo ticket de qualquer cliente nessa jornada**, não só os que ele criou — os dois
+roteamentos (por criador e por jornada) são aditivos, um ticket pode notificar os dois ao
+mesmo tempo sem duplicar mensagem no mesmo chat. `/jornada NOME` de novo com o mesmo nome
+**desliga** essa jornada específica (alterna, não precisa de `/stop` separado — mas `/stop`
+também desliga tudo de uma vez, incluindo jornadas). `/jornadas` (plural, sem argumento) lista
+os nomes exatos disponíveis agora, tirados dos tickets abertos rastreados — o nome digitado em
+`/jornada` precisa bater com um desses (sem diferenciar maiúsculas/minúsculas). Só é
+populado pela fase de descoberta (não pela `known`, que não tem os dados de cliente
+disponíveis — ver "Detecção via polling"), então uma jornada nova só aparece em `/jornadas`
+depois do próximo ciclo de descoberta que passar por um ticket daquele cliente.
+
+Cada inscrição pessoal (`telegram_chats.is_personal = true`) aparece na aba **Chats**, numa
+lista separada dos grupos ("Inscrições pessoais") — mostra o nome do agente, as jornadas que
+segue (se houver), permite desativar manualmente e testar o envio, igual a qualquer outro
+chat, só sem o painel de membros (aqui o "membro" é sempre o próprio dono do chat).
 
 Por segurança, o bot **nunca confia num `@usuário` digitado** pela pessoa — ele usa o
 `@usuário` que o próprio Telegram manda (verificado, vem no update), então não dá pra alguém
 digitar o `@` de um colega e começar a receber os tickets dele. Se a pessoa não tiver
 `@usuário` público configurado no Telegram, ou se não estiver cadastrada na aba Agentes com
-esse mesmo `@`, o bot explica o que falta em vez de aceitar qualquer coisa digitada.
+esse mesmo `@`, o bot explica o que falta em vez de aceitar qualquer coisa digitada — vale
+tanto pro `/status` quanto pro `/jornada`.
 
 Pra habilitar esse comando, é preciso registrar um webhook de entrada (diferente do que já
 existe hoje, que só *envia* mensagem — isso aqui faz o bot *receber*):
@@ -436,9 +453,8 @@ existe hoje, que só *envia* mensagem — isso aqui faz o bot *receber*):
 3. Confirme que registrou certo: `https://api.telegram.org/bot<TOKEN>/getWebhookInfo` deve
    mostrar a URL cadastrada sem `last_error_message`.
 
-Sem `TELEGRAM_WEBHOOK_SECRET` configurado, o comando `/status` simplesmente não funciona
-(webhook nunca registrado) — o resto do bot (envio de notificação) continua normal, não
-depende disso.
+Sem `TELEGRAM_WEBHOOK_SECRET` configurado, nenhum desses comandos funciona (webhook nunca
+registrado) — o resto do bot (envio de notificação) continua normal, não depende disso.
 
 ### 6. Ligar o polling (cron externo — cron-job.org)
 
@@ -566,8 +582,8 @@ api/
   import-agents.js                importa nome/e-mail em lote (JSON ou stream RSC colado)
   telegram-test.js                  manda uma mensagem de teste pra um chat_id (botão "Testar")
   telegram-webhook.js                 recebe update de ENTRADA do bot (Telegram chamando a
-                                     gente, não o contrário) — trata /status e /stop (ver
-                                     README "Comandos /status e /stop"). Autenticado pelo header
+                                     gente, não o contrário) — trata /status, /stop, /jornada e
+                                     /jornadas (ver README seção 5.1). Autenticado pelo header
                                      secreto do setWebhook (TELEGRAM_WEBHOOK_SECRET), não por
                                      sessão nem CRON_SECRET
 vercel.json            reescreve /api/auth-start, /api/auth-callback, /api/auth-logout,
@@ -584,9 +600,11 @@ lib/
                           mapWithConcurrency etc.), compartilhados por discover-tickets.js
                           e poll-tickets.js
   ticket-notify.js          notifyTicketEvent() resolve @menção + nome do estágio + chat(s)
-                            alvo e manda a mensagem no Telegram (usado por webhook.js e
-                            processTicket()); processTicket() compara um ticket com
-                            ticket_state, grava e decide se notifica — usado por
+                            alvo (por criador via chat_agents E por jornada via
+                            chat_journeys, aditivo — ver getTargetChatIds()) e manda a
+                            mensagem no Telegram; processTicket() compara um ticket com
+                            ticket_state, grava e decide se notifica; processClosedTicket()
+                            faz o mesmo pra tickets num estágio de encerramento — usados por
                             poll-tickets.js E discover-tickets.js (busca manual também
                             grava/notifica, não só o polling)
   agents.js              busca o @username cadastrado pro criador do ticket
@@ -601,14 +619,18 @@ lib/
                             de uma reconexão OAuth bem-sucedida (GITHUB_DISPATCH_TOKEN)
 sql/
   schema.sql            tabelas: agent_mapping (softcs_user_id, telegram_username opcional,
-                         display_name, email), processed_webhook_events, telegram_chats,
-                         chat_agents (membros de cada chat), settings, softcs_oauth_tokens,
-                         oauth_pkce_state, stage_labels (nome + posição de cada coluna do
+                         display_name, email), processed_webhook_events, telegram_chats
+                         (grupos/canais e inscrições pessoais via /status, is_personal),
+                         chat_agents (membros de cada chat, roteamento por criador),
+                         chat_journeys (inscrição por jornada via /jornada, roteamento por
+                         cliente), settings, softcs_oauth_tokens, oauth_pkce_state,
+                         stage_labels (nome, posição e is_closed_stage de cada coluna do
                          Kanban), allowed_users (allowlist de login),
                          sessions (login do painel), google_oauth_state, ticket_state
                          (snapshot de cada ticket aberto — estágio, título, prioridade,
-                         cliente e client_id — usado pelo polling pra notificar E pelo
-                         painel pra mostrar o Kanban salvo sem precisar de uma varredura ao
-                         vivo; client_id também alimenta a fase ?phase=known do polling)
+                         cliente, client_id e journey_names — usado pelo polling pra
+                         notificar E pelo painel pra mostrar o Kanban salvo sem precisar de
+                         uma varredura ao vivo; client_id também alimenta a fase
+                         ?phase=known do polling)
 dev-server.js          servidor local leve pra `npm run dev` (sem precisar de vercel CLI)
 ```
