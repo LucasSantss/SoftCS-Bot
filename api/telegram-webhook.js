@@ -1,13 +1,16 @@
 import sql from '../lib/db.js';
 import { sendTelegramMessageToChat, escapeHtml } from '../lib/telegram.js';
+import { keyboardMarkup, inlineLinkMarkup } from '../lib/telegram-keyboards.js';
+
+const TICKETS_BOARD_URL = 'https://admin.softcs.com.br/pt-br/tickets';
 
 // Recebe updates do bot do Telegram (mensagens mandadas pra ele) — configurado
-// via setWebhook, ver README. Só existe por causa dos comandos /status,
-// /stop, /jornada e /jornadas (DM pessoal, ver handle* abaixo); nenhum
-// outro comando é tratado ainda. Não exige sessão (é o Telegram que chama
-// isso, não um navegador logado) — autenticado pelo header secreto que o
-// Telegram reenvia em toda chamada (setWebhook com secret_token), não por
-// cookie.
+// via setWebhook, ver README. Só existe por causa dos comandos /start,
+// /status, /stop, /notificacoes e dos comandos dinâmicos de cada grupo de
+// jornada (aba Jornadas — ver handleGroupToggle); nenhum outro comando é
+// tratado ainda. Não exige sessão (é o Telegram que chama isso, não um
+// navegador logado) — autenticado pelo header secreto que o Telegram
+// reenvia em toda chamada (setWebhook com secret_token), não por cookie.
 async function findAgentByTelegramUsername(username) {
   const rows = await sql`
     select softcs_user_id, display_name from agent_mapping
@@ -15,6 +18,30 @@ async function findAgentByTelegramUsername(username) {
     limit 1
   `;
   return rows[0] ?? null;
+}
+
+// /start: primeira mensagem que o Telegram manda quando alguém abre o chat
+// com o bot e toca em "Iniciar" (ou digita /start na mão). Manda DUAS
+// mensagens de propósito — a Bot API só aceita UM tipo de reply_markup por
+// mensagem, não dá pra combinar botão inline (o link pros tickets) com
+// botão de teclado (os comandos) na mesma.
+async function handleStart() {
+  return [
+    {
+      text:
+        '👋 Esse bot avisa aqui no privado sobre tickets da SoftCS.\n\n' +
+        '<b>/status</b> — tickets criados por você\n' +
+        '<b>/notificacoes</b> — grupos de jornada disponíveis (tickets de clientes numa ' +
+        'jornada específica, de qualquer criador)\n' +
+        '<b>/stop</b> — para tudo de uma vez\n\n' +
+        'Mandar o mesmo comando de novo desliga — não precisa de /stop pra isso.',
+      replyMarkup: inlineLinkMarkup([[{ text: '🎫 Ver tickets', url: TICKETS_BOARD_URL }]]),
+    },
+    {
+      text: 'Pra começar:',
+      replyMarkup: keyboardMarkup([['/status'], ['/notificacoes']]),
+    },
+  ];
 }
 
 // /status: a pessoa fala com o bot no privado e, se o @username do Telegram
@@ -25,7 +52,7 @@ async function findAgentByTelegramUsername(username) {
 // desativar esse chat na aba Chats. De propósito NÃO aceita a pessoa digitar
 // um @ pra se cadastrar como outra pessoa — isso furaria a restrição de só
 // agentes já mapeados poderem se inscrever.
-async function handleStatus({ chatId, username, displayName }) {
+async function handleStatus({ chatId, username }) {
   if (!username) {
     return (
       'Seu Telegram não tem um @usuário público configurado — sem isso não dá pra saber ' +
@@ -59,10 +86,11 @@ async function handleStatus({ chatId, username, displayName }) {
   );
 }
 
-// /stop: desfaz o /status — desativa esse chat privado (mesma flag `active`
-// que a aba Chats usa pro toggle manual), sem precisar de administrador.
-// Só afeta o próprio chat de quem mandou o comando (chat.id de uma DM é o
-// user id da pessoa), nunca o de outra pessoa.
+// /stop: desliga TUDO de uma vez — /status e qualquer grupo de jornada
+// seguido — desativando esse chat privado (mesma flag `active` que a aba
+// Chats usa pro toggle manual), sem precisar de administrador. Só afeta o
+// próprio chat de quem mandou o comando (chat.id de uma DM é o user id da
+// pessoa), nunca o de outra pessoa.
 async function handleStop({ chatId }) {
   const rows = await sql`
     update telegram_chats set active = false where chat_id = ${String(chatId)} and active = true
@@ -71,41 +99,35 @@ async function handleStop({ chatId }) {
   if (rows.length === 0) {
     return 'Você não tinha notificações pessoais ativadas aqui — nada a fazer.';
   }
-  return 'Pronto, não vou mais te mandar notificação de ticket aqui. Pra reativar, mande /status de novo quando quiser.';
+  return 'Pronto, não vou mais te mandar notificação de ticket aqui. Pra reativar, mande /status ou o comando de algum grupo de jornada quando quiser.';
 }
 
-// Nomes de jornada distintos vistos entre os tickets abertos rastreados —
-// alimentado por api/poll-tickets.js/api/discover-tickets.js na fase de
-// descoberta (única com acesso aos dados de cliente, que já vêm com o nome
-// pronto — ver extractJourneyNames em lib/ticket-scan.js). É contra essa
-// lista que /jornada valida o nome digitado.
-async function listKnownJourneyNames() {
-  const rows = await sql`
-    select distinct unnest(journey_names) as name from ticket_state where journey_names is not null order by 1
-  `;
-  return rows.map((r) => r.name);
+async function listJourneyGroups() {
+  return sql`select command, name from journey_groups order by name`;
 }
 
-// /jornadas (plural, sem argumento): lista as jornadas que têm ticket
-// aberto rastreado agora, pra pessoa saber exatamente o que digitar no
-// /jornada (nome tem que bater, sem diferenciar maiúsculas/minúsculas).
-async function handleJourneysList() {
-  const names = await listKnownJourneyNames();
-  if (names.length === 0) {
-    return 'Nenhuma jornada com ticket aberto rastreado ainda — tente de novo depois de uma varredura.';
+// /notificacoes: lista os grupos de jornada cadastrados na aba Jornadas
+// como botões de teclado — tocar num manda o comando daquele grupo, que
+// cai no handleGroupToggle abaixo.
+async function handleNotifications() {
+  const groups = await listJourneyGroups();
+  if (groups.length === 0) {
+    return 'Nenhum grupo de jornada cadastrado ainda — peça pra um administrador criar um na aba Jornadas do painel.';
   }
-  return `Jornadas com ticket aberto agora:\n${names.map((n) => `• ${escapeHtml(n)}`).join('\n')}\n\nMande /jornada seguido do nome pra acompanhar (ex: /jornada ${names[0]}).`;
+  return {
+    text: 'Grupos de jornada disponíveis — toque num pra passar a acompanhar (ou parar, se já acompanhava):',
+    replyMarkup: keyboardMarkup(groups.map((g) => [`/${g.command}`])),
+  };
 }
 
-// /jornada <nome>: alterna a inscrição (liga se não tinha, desliga se já
-// tinha) num grupo de notificação por jornada — todo ticket cujo cliente
-// esteja nessa jornada notifica esse chat, além do roteamento por criador
-// que já existia (ver getTargetChatIds em lib/ticket-notify.js). Mesma
-// restrição de segurança do /status: só quem já está mapeado na aba
-// Agentes (via @usuário verificado pelo próprio Telegram) pode se
-// inscrever — sem isso, qualquer um poderia se cadastrar em qualquer grupo
-// de notificação.
-async function handleJourneySubscribe({ chatId, username, journeyNameRaw }) {
+// Comando dinâmico de um grupo de jornada (ex: /onboarding_ativo, criado na
+// aba Jornadas): alterna a inscrição (liga se não tinha, desliga se já
+// tinha) — todo ticket cujo cliente esteja em QUALQUER jornada do grupo
+// notifica esse chat, além do roteamento por criador que já existia (ver
+// getTargetChatIds em lib/ticket-notify.js). Mesma restrição de segurança
+// do /status: só quem já está mapeado na aba Agentes (via @usuário
+// verificado pelo próprio Telegram) pode se inscrever.
+async function handleGroupToggle({ chatId, username, command }) {
   if (!username) {
     return (
       'Seu Telegram não tem um @usuário público configurado — sem isso não dá pra saber ' +
@@ -121,18 +143,9 @@ async function handleJourneySubscribe({ chatId, username, journeyNameRaw }) {
     );
   }
 
-  if (!journeyNameRaw) {
-    return 'Uso: /jornada NOME (ex: /jornada Implantação Oficial). Mande /jornadas pra ver os nomes disponíveis.';
-  }
-
-  const knownNames = await listKnownJourneyNames();
-  const canonicalName = knownNames.find((n) => n.toLowerCase() === journeyNameRaw.toLowerCase());
-  if (!canonicalName) {
-    return (
-      `Não reconheço a jornada "${escapeHtml(journeyNameRaw)}" entre as que têm ticket aberto agora. ` +
-      'Mande /jornadas pra ver a lista certinha.'
-    );
-  }
+  const groupRows = await sql`select name from journey_groups where command = ${command}`;
+  const group = groupRows[0];
+  if (!group) return null; // não é um comando de grupo conhecido — deixa cair pro "não reconheço"
 
   await sql`
     insert into telegram_chats (chat_id, label, active, is_personal)
@@ -141,19 +154,22 @@ async function handleJourneySubscribe({ chatId, username, journeyNameRaw }) {
   `;
 
   const existing = await sql`
-    select 1 from chat_journeys where chat_id = ${String(chatId)} and journey_name = ${canonicalName}
+    select 1 from chat_journey_groups where chat_id = ${String(chatId)} and command = ${command}
   `;
 
   if (existing.length > 0) {
-    await sql`delete from chat_journeys where chat_id = ${String(chatId)} and journey_name = ${canonicalName}`;
-    return `Pronto, parou de acompanhar a jornada "${escapeHtml(canonicalName)}". Mande /jornada de novo com o mesmo nome pra voltar a acompanhar.`;
+    await sql`delete from chat_journey_groups where chat_id = ${String(chatId)} and command = ${command}`;
+    return `Pronto, parou de acompanhar "${escapeHtml(group.name)}". Mande /${command} de novo pra voltar.`;
   }
 
-  await sql`insert into chat_journeys (chat_id, journey_name) values (${String(chatId)}, ${canonicalName})`;
+  const journeyRows = await sql`select journey_name from journey_group_items where command = ${command} order by 1`;
+  const journeyNames = journeyRows.map((r) => r.journey_name);
+
+  await sql`insert into chat_journey_groups (chat_id, command) values (${String(chatId)}, ${command})`;
   return (
     `Pronto${agent.display_name ? `, ${escapeHtml(agent.display_name)}` : ''}! A partir de agora você recebe ` +
-    `aqui, no privado, os tickets de clientes na jornada "${escapeHtml(canonicalName)}" — de qualquer criador, ` +
-    'não só os seus. Mande /jornada com o mesmo nome de novo pra parar.'
+    `aqui, no privado, os tickets de clientes em "${escapeHtml(group.name)}" (${journeyNames.map(escapeHtml).join(', ')}) ` +
+    `— de qualquer criador, não só os seus. Mande /${command} de novo pra parar.`
   );
 }
 
@@ -185,8 +201,8 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { command, args } = parseCommand(message.text);
-  if (!['status', 'stop', 'jornada', 'jornadas'].includes(command)) {
+  const { command } = parseCommand(message.text);
+  if (!command) {
     res.status(200).json({ ok: true, skipped: true });
     return;
   }
@@ -197,20 +213,35 @@ export default async function handler(req, res) {
   try {
     let reply;
     switch (command) {
+      case 'start':
+        reply = await handleStart();
+        break;
       case 'status':
-        reply = await handleStatus({ chatId, username, displayName: message.from?.first_name ?? null });
+        reply = await handleStatus({ chatId, username });
         break;
       case 'stop':
         reply = await handleStop({ chatId });
         break;
-      case 'jornadas':
-        reply = await handleJourneysList();
+      case 'notificacoes':
+        reply = await handleNotifications();
         break;
-      case 'jornada':
-        reply = await handleJourneySubscribe({ chatId, username, journeyNameRaw: args });
-        break;
+      default:
+        // Não é um comando fixo — só vale a pena checar se é um comando de
+        // grupo de jornada (consulta o banco); qualquer outra coisa é
+        // ignorada em silêncio, sem gastar consulta à toa.
+        reply = await handleGroupToggle({ chatId, username, command });
     }
-    await sendTelegramMessageToChat(chatId, reply);
+
+    if (reply == null) {
+      res.status(200).json({ ok: true, skipped: true });
+      return;
+    }
+
+    const messages = Array.isArray(reply) ? reply : [reply];
+    for (const item of messages) {
+      const { text, replyMarkup } = typeof item === 'string' ? { text: item, replyMarkup: undefined } : item;
+      await sendTelegramMessageToChat(chatId, text, undefined, replyMarkup);
+    }
     res.status(200).json({ ok: true });
   } catch (error) {
     console.error('Erro processando comando do Telegram:', error);

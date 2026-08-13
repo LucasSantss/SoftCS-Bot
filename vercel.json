@@ -6,6 +6,7 @@
     { "source": "/api/me", "destination": "/api/auth?action=me" },
     { "source": "/api/users", "destination": "/api/auth?action=users" },
     { "source": "/api/oauth-start", "destination": "/api/softcs-oauth?action=start" },
-    { "source": "/api/oauth-callback", "destination": "/api/softcs-oauth?action=callback" }
+    { "source": "/api/oauth-callback", "destination": "/api/softcs-oauth?action=callback" },
+    { "source": "/api/journey-groups", "destination": "/api/chats?action=groups" }
   ]
 }

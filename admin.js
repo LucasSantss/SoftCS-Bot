@@ -41,6 +41,7 @@ const TAB_META = {
   tickets: { title: "Tickets", sub: "Consulta os tickets da SoftCS, agrupados pelas colunas do Kanban" },
   agents: { title: "Agentes", sub: "Mapeamento entre usuário SoftCS e @username no Telegram" },
   chats: { title: "Chats do Telegram", sub: "Grupos e canais que recebem a notificação de cada ticket" },
+  journeys: { title: "Jornadas", sub: "Grupos de jornada — cada um vira um comando no bot" },
   access: { title: "Acesso", sub: "Quem pode entrar no painel (@chatbotmaker.io)" },
 };
 
@@ -804,6 +805,156 @@ chatForm.addEventListener("submit", async (event) => {
   }
 });
 
+// ─── Jornadas ───────────────────────────────────────────────────────────────
+const journeyGroupForm = document.getElementById("journeyGroupForm");
+const journeyGroupStatus = document.getElementById("journeyGroupStatus");
+const journeyGroupList = document.getElementById("journeyGroupList");
+const journeyGroupEmpty = document.getElementById("journeyGroupEmpty");
+const newJourneyGroupJourneys = document.getElementById("newJourneyGroupJourneys");
+const journeyGroupJourneysEmpty = document.getElementById("journeyGroupJourneysEmpty");
+const journeyGroupCommandPreview = document.getElementById("journeyGroupCommandPreview");
+
+// Mesma lógica de lib/journey-groups.js (slugifyCommand) — só pra prévia
+// instantânea no formulário; quem manda de verdade é sempre o backend.
+function slugifyCommandPreview(name) {
+  return (name || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 32);
+}
+
+journeyGroupForm.elements.name.addEventListener("input", () => {
+  const slug = slugifyCommandPreview(journeyGroupForm.elements.name.value);
+  journeyGroupCommandPreview.textContent = slug ? `Vira o comando: /${slug}` : "";
+});
+
+function populateJourneyOptions(selectEl, knownNames, selectedNames) {
+  const selected = new Set(selectedNames || []);
+  selectEl.innerHTML = "";
+  for (const name of knownNames) {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    option.selected = selected.has(name);
+    selectEl.appendChild(option);
+  }
+}
+
+async function loadJourneyGroups() {
+  try {
+    const { groups, knownJourneyNames } = await api("/api/journey-groups");
+    journeyGroupList.innerHTML = "";
+    journeyGroupEmpty.style.display = groups.length ? "none" : "block";
+    for (const group of groups) renderJourneyGroupRow(group, knownJourneyNames);
+    populateJourneyOptions(newJourneyGroupJourneys, knownJourneyNames, []);
+    journeyGroupJourneysEmpty.style.display = knownJourneyNames.length ? "none" : "block";
+  } catch (err) {
+    setStatus(journeyGroupStatus, err.message, true);
+  }
+}
+
+function renderJourneyGroupRow(group, knownJourneyNames) {
+  const wrapper = document.createElement("div");
+
+  const row = document.createElement("div");
+  row.className = "list-item";
+  row.innerHTML = `
+    <div class="list-item-main">
+      <span class="list-item-title"></span>
+      <span class="list-item-sub"></span>
+    </div>
+    <div class="list-item-actions">
+      <button class="btn btn-secondary edit-btn">Editar jornadas</button>
+      <button class="icon-btn" title="Remover">🗑</button>
+    </div>
+  `;
+  row.querySelector(".list-item-title").textContent = `${group.name}  ·  /${group.command}`;
+  row.querySelector(".list-item-sub").textContent =
+    `${group.journey_names.join(", ")} — ${group.subscriber_count} inscrito(s)`;
+
+  row.querySelector(".icon-btn").addEventListener("click", async () => {
+    if (!confirm(`Remover o grupo "${group.name}" (/${group.command})? Quem seguia perde a inscrição.`)) return;
+    try {
+      await api(`/api/journey-groups?command=${encodeURIComponent(group.command)}`, { method: "DELETE" });
+      await loadJourneyGroups();
+      setStatus(journeyGroupStatus, "Removido.", false);
+    } catch (err) {
+      setStatus(journeyGroupStatus, err.message, true);
+    }
+  });
+
+  // ── Painel de edição das jornadas (colapsado por padrão) ──
+  const editPanel = document.createElement("div");
+  editPanel.style.display = "none";
+  editPanel.style.margin = "0.5rem 0 0.75rem";
+  editPanel.innerHTML = `
+    <select multiple size="6"></select>
+    <div class="form-actions" style="margin-top: 0.5rem;">
+      <button type="button" class="btn btn-primary save-btn">Salvar</button>
+      <span class="edit-status status-line"></span>
+    </div>
+  `;
+  const editSelect = editPanel.querySelector("select");
+  const editStatus = editPanel.querySelector(".edit-status");
+
+  row.querySelector(".edit-btn").addEventListener("click", () => {
+    const isOpen = editPanel.style.display !== "none";
+    if (isOpen) {
+      editPanel.style.display = "none";
+    } else {
+      populateJourneyOptions(editSelect, knownJourneyNames, group.journey_names);
+      editPanel.style.display = "block";
+    }
+  });
+
+  editPanel.querySelector(".save-btn").addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const journeyNames = Array.from(editSelect.selectedOptions).map((o) => o.value);
+    if (journeyNames.length === 0) {
+      setStatus(editStatus, "Selecione pelo menos uma jornada.", true);
+      return;
+    }
+    btn.disabled = true;
+    try {
+      await api("/api/journey-groups", {
+        method: "POST",
+        body: JSON.stringify({ command: group.command, name: group.name, journey_names: journeyNames }),
+      });
+      setStatus(editStatus, "Salvo.", false);
+      await loadJourneyGroups();
+    } catch (err) {
+      setStatus(editStatus, err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  wrapper.append(row, editPanel);
+  journeyGroupList.appendChild(wrapper);
+}
+
+journeyGroupForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const journeyNames = Array.from(newJourneyGroupJourneys.selectedOptions).map((o) => o.value);
+  if (journeyNames.length === 0) {
+    setStatus(journeyGroupStatus, "Selecione pelo menos uma jornada.", true);
+    return;
+  }
+  const data = { name: journeyGroupForm.elements.name.value.trim(), journey_names: journeyNames };
+  try {
+    await api("/api/journey-groups", { method: "POST", body: JSON.stringify(data) });
+    journeyGroupForm.reset();
+    journeyGroupCommandPreview.textContent = "";
+    setStatus(journeyGroupStatus, "Adicionado.", false);
+    await loadJourneyGroups();
+  } catch (err) {
+    setStatus(journeyGroupStatus, err.message, true);
+  }
+});
+
 // ─── Acesso (só master vê essa aba) ────────────────────────────────────────
 const accessForm = document.getElementById("accessForm");
 const accessStatus = document.getElementById("accessStatus");
@@ -892,6 +1043,7 @@ async function boot() {
   await loadMe();
   await loadAgents(); // precisa terminar antes: loadChats popula o seletor de membros, e o board salvo usa agentInfoById pro nome/@ do criador
   loadChats();
+  loadJourneyGroups();
   loadConnection();
   loadStoredTickets();
 }

@@ -15,6 +15,7 @@ const PORT = process.env.PORT || 3000;
 const routes = {
   '/api/webhook': ['./api/webhook.js'],
   '/api/chats': ['./api/chats.js'],
+  '/api/journey-groups': ['./api/chats.js', 'groups'],
   '/api/agents': ['./api/agents.js'],
   '/api/settings': ['./api/settings.js'],
   '/api/discover-tickets': ['./api/discover-tickets.js'],

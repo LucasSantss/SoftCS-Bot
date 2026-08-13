@@ -1,10 +1,8 @@
 import sql from '../lib/db.js';
 import { requireSession } from '../lib/auth.js';
+import { slugifyCommand } from '../lib/journey-groups.js';
 
-export default async function handler(req, res) {
-  const user = await requireSession(req, res);
-  if (!user) return;
-
+async function handleChats(req, res) {
   if (req.method === 'GET') {
     const rows = await sql`
       select
@@ -17,16 +15,17 @@ export default async function handler(req, res) {
         -- exatamente um membro, o próprio dono do chat) — nome pra exibir na UI
         -- em vez do chat_id cru, ver aba Chats.
         max(am.display_name) filter (where c.is_personal) as agent_display_name,
-        -- jornadas seguidas via /jornada (ver api/telegram-webhook.js) —
-        -- distinto de member_ids/chat_agents (roteamento por criador).
+        -- grupos de jornada seguidos (aba Jornadas / comando dinâmico no bot)
+        -- — distinto de member_ids/chat_agents (roteamento por criador).
         coalesce(
-          json_agg(distinct j.journey_name) filter (where j.journey_name is not null),
+          json_agg(distinct g.name) filter (where g.name is not null),
           '[]'
-        ) as journey_names
+        ) as journey_group_names
       from telegram_chats c
       left join chat_agents a on a.chat_id = c.chat_id
       left join agent_mapping am on am.softcs_user_id = a.softcs_user_id
-      left join chat_journeys j on j.chat_id = c.chat_id
+      left join chat_journey_groups cg on cg.chat_id = c.chat_id
+      left join journey_groups g on g.command = cg.command
       group by c.chat_id, c.label, c.active, c.thread_id, c.is_personal, c.created_at
       order by c.created_at desc
     `;
@@ -85,4 +84,99 @@ export default async function handler(req, res) {
   }
 
   res.status(405).json({ error: 'method not allowed' });
+}
+
+// CRUD dos grupos de jornada (aba Jornadas) — junta várias jornadas sob um
+// nome, e esse nome vira um comando de verdade no bot (/{command}, ver
+// api/telegram-webhook.js). Consolidado aqui (via ?action=groups, reescrito
+// de /api/journey-groups pelo vercel.json) em vez de um arquivo próprio
+// porque o projeto já está no limite de 12 Serverless Functions do plano
+// Hobby da Vercel — ver README.
+async function handleJourneyGroups(req, res) {
+  if (req.method === 'GET') {
+    const groups = await sql`
+      select
+        g.command, g.name, g.created_at,
+        coalesce(
+          json_agg(distinct i.journey_name) filter (where i.journey_name is not null),
+          '[]'
+        ) as journey_names,
+        count(distinct cg.chat_id) as subscriber_count
+      from journey_groups g
+      left join journey_group_items i on i.command = g.command
+      left join chat_journey_groups cg on cg.command = g.command
+      group by g.command, g.name, g.created_at
+      order by g.created_at desc
+    `;
+    // Jornadas com ticket aberto rastreado agora — alimenta o multi-select
+    // de "quais jornadas entram nesse grupo" no formulário (aba Jornadas);
+    // só existe o que a fase de descoberta já viu (ver lib/ticket-scan.js).
+    const known = await sql`
+      select distinct unnest(journey_names) as name from ticket_state where journey_names is not null order by 1
+    `;
+    res.status(200).json({ groups, knownJourneyNames: known.map((r) => r.name) });
+    return;
+  }
+
+  if (req.method === 'POST') {
+    const { command: existingCommand, name, journey_names: journeyNames } = req.body ?? {};
+    if (!name || !Array.isArray(journeyNames) || journeyNames.length === 0) {
+      res.status(400).json({ error: 'name e journey_names (pelo menos uma) são obrigatórios' });
+      return;
+    }
+    const command = slugifyCommand(name);
+    if (!command) {
+      res.status(400).json({ error: 'Não deu pra gerar um comando válido a partir desse nome' });
+      return;
+    }
+
+    // Nome mudou o suficiente pra mudar o comando (slug) — UPDATE na PK em
+    // vez de INSERT/DELETE, pra `on update cascade` levar junto as jornadas
+    // e inscrições já cadastradas nesse grupo (ver schema.sql).
+    if (existingCommand && existingCommand !== command) {
+      const clash = await sql`select 1 from journey_groups where command = ${command}`;
+      if (clash.length > 0) {
+        res.status(400).json({ error: `Já existe um grupo com o comando /${command} — escolha outro nome.` });
+        return;
+      }
+      await sql`update journey_groups set command = ${command}, name = ${name} where command = ${existingCommand}`;
+    } else {
+      await sql`
+        insert into journey_groups (command, name) values (${command}, ${name})
+        on conflict (command) do update set name = excluded.name
+      `;
+    }
+
+    await sql`delete from journey_group_items where command = ${command}`;
+    for (const journeyName of journeyNames) {
+      await sql`
+        insert into journey_group_items (command, journey_name) values (${command}, ${journeyName})
+        on conflict do nothing
+      `;
+    }
+
+    res.status(200).json({ ok: true, command });
+    return;
+  }
+
+  if (req.method === 'DELETE') {
+    const command = req.query.command;
+    if (!command) {
+      res.status(400).json({ error: 'command é obrigatório' });
+      return;
+    }
+    await sql`delete from journey_groups where command = ${command}`;
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  res.status(405).json({ error: 'method not allowed' });
+}
+
+export default async function handler(req, res) {
+  const user = await requireSession(req, res);
+  if (!user) return;
+
+  if (req.query.action === 'groups') return handleJourneyGroups(req, res);
+  return handleChats(req, res);
 }

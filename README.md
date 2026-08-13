@@ -190,7 +190,7 @@ Configurações), não da API pública. Pra contornar isso:
   continua manual (só existe na sua cabeça, não em nenhuma API), mas agora pelo menos você
   já vê o nome/e-mail de cada ID sem precisar caçar ticket por ticket.
 
-## Painel: Tickets, Agentes, Chats, Acesso
+## Painel: Tickets, Agentes, Chats, Jornadas, Acesso
 
 **Aba Tickets**: conecta a aplicação OAuth2 (Client ID/Secret/Redirect URI). O Kanban
 **carrega sozinho ao abrir a página**, lendo o snapshot salvo em `ticket_state` (a mesma
@@ -397,45 +397,61 @@ JSON da mensagem. Cole esse número no campo "thread_id do tópico" ao cadastrar
 edite depois direto no banco, `update telegram_chats set thread_id = '...' where chat_id =
 '...'`) — o `chat_id` continua sendo o do grupo, igual a qualquer outro chat.
 
-### 5.1. Comandos `/status`, `/stop`, `/jornada` e `/jornadas` (inscrição pessoal no privado)
+**Aba Jornadas**: cadastra grupos de jornada — ver seção 5.1 abaixo pra como isso vira comando
+no bot e como a inscrição funciona pro lado de quem usa o Telegram.
+
+### 5.1. Comandos do bot e grupos de jornada (inscrição pessoal no privado)
 
 Além de mandar notificação pros grupos/chats cadastrados, um agente pode falar **no privado**
-com o bot e mandar `/status` — se o `@usuário` do Telegram dele bater com o que está
-cadastrado na aba Agentes, o bot passa a mandar uma cópia de toda notificação de ticket criado
-por ele também nesse DM, além de onde já ia antes. Fica valendo permanentemente, independente
-de qualquer atualização/mudança no sistema — não precisa repetir o comando toda vez. Pra
-parar, a própria pessoa manda `/stop` a qualquer momento (desativa só o chat dela, sem precisar
-de administrador); pra reativar depois, é só mandar `/status` de novo.
+com o bot:
 
-**`/jornada NOME`** funciona parecido, mas por **jornada do cliente** (Customer Success —
-Onboarding, Engajamento etc.) em vez de por criador do ticket: a API pública já devolve o
-nome da jornada pronto por cliente (`GET /clients` → `journeys[].journeyName`, sem precisar
-de mapeamento manual tipo os estágios do Kanban — ver `extractJourneyNames()` em
-`lib/ticket-scan.js`). Quem manda `/jornada Implantação Oficial` passa a receber, no privado,
-**todo ticket de qualquer cliente nessa jornada**, não só os que ele criou — os dois
-roteamentos (por criador e por jornada) são aditivos, um ticket pode notificar os dois ao
-mesmo tempo sem duplicar mensagem no mesmo chat. `/jornada NOME` de novo com o mesmo nome
-**desliga** essa jornada específica (alterna, não precisa de `/stop` separado — mas `/stop`
-também desliga tudo de uma vez, incluindo jornadas). `/jornadas` (plural, sem argumento) lista
-os nomes exatos disponíveis agora, tirados dos tickets abertos rastreados — o nome digitado em
-`/jornada` precisa bater com um desses (sem diferenciar maiúsculas/minúsculas). Só é
-populado pela fase de descoberta (não pela `known`, que não tem os dados de cliente
-disponíveis — ver "Detecção via polling"), então uma jornada nova só aparece em `/jornadas`
-depois do próximo ciclo de descoberta que passar por um ticket daquele cliente.
+- **`/start`** — a primeira mensagem que o Telegram manda sozinho quando alguém abre o chat
+  com o bot. Explica as funções disponíveis e manda dois avisos: um com botão **inline**
+  (permanece na mensagem, abre link de verdade) pro board de tickets da SoftCS, e outro com
+  botão de **teclado** (aparece embaixo da caixa de digitar, tocar manda o comando) pros
+  comandos `/status` e `/notificacoes`.
+- **`/status`** — se o `@usuário` do Telegram da pessoa bater com o que está cadastrado na aba
+  Agentes, o bot passa a mandar uma cópia de toda notificação de ticket **criado por ela**
+  também nesse DM, além de onde já ia antes. Fica valendo permanentemente até `/stop`.
+- **`/notificacoes`** — lista os grupos de jornada cadastrados na aba **Jornadas** como botões
+  de teclado; tocar num manda o comando daquele grupo.
+- **Comando de cada grupo de jornada** (ex: `/onboarding_ativo`) — liga/alterna a inscrição
+  nesse grupo: a pessoa passa a receber, no privado, **todo ticket de qualquer cliente numa
+  das jornadas daquele grupo**, não só os que ela criou. O roteamento por criador (`/status`)
+  e por grupo de jornada são **aditivos** — um ticket pode notificar os dois ao mesmo tempo
+  sem duplicar mensagem no mesmo chat. Mandar o mesmo comando de novo **desliga** só aquele
+  grupo (alterna, não precisa de `/stop`).
+- **`/stop`** — desliga tudo de uma vez (o `/status` e qualquer grupo de jornada seguido),
+  sem precisar de administrador. Pra reativar, é só mandar os comandos de novo.
+
+**Grupos de jornada são cadastrados na aba Jornadas do painel**, não pelo Telegram: você
+escolhe um nome (ex: "Onboarding Ativo") e quais jornadas entram nele (multi-select,
+alimentado pelas jornadas que a API pública já devolve prontas por cliente — `GET /clients` →
+`journeys[].journeyName`, sem precisar de mapeamento manual tipo os estágios do Kanban; só
+conta jornada **ativa** — `journeyCompleted: false` — ver `extractJourneyNames()` em
+`lib/ticket-scan.js`). O nome vira um comando de verdade (`slugifyCommand()` em
+`lib/journey-groups.js` — minúsculo, sem acento, só `[a-z0-9_]`, até 32 caracteres), mostrado
+na hora no formulário. Só aparece na lista de jornadas disponíveis pra montar um grupo o que a
+fase de **descoberta** já viu (não a `known`, que não tem os dados de cliente disponíveis —
+ver "Detecção via polling"), então uma jornada nova só aparece depois do próximo ciclo de
+descoberta que passar por um ticket daquele cliente. Editar as jornadas de um grupo já
+existente (sem mudar o nome/comando) preserva quem já estava inscrito; renomear o grupo muda
+o comando mas mantém as inscrições (`on update cascade` no banco).
 
 Cada inscrição pessoal (`telegram_chats.is_personal = true`) aparece na aba **Chats**, numa
-lista separada dos grupos ("Inscrições pessoais") — mostra o nome do agente, as jornadas que
-segue (se houver), permite desativar manualmente e testar o envio, igual a qualquer outro
-chat, só sem o painel de membros (aqui o "membro" é sempre o próprio dono do chat).
+lista separada dos grupos/canais ("Inscrições pessoais") — mostra o nome do agente, os grupos
+de jornada que segue (se houver), permite desativar manualmente e testar o envio, igual a
+qualquer outro chat, só sem o painel de membros (aqui o "membro" é sempre o próprio dono do
+chat).
 
 Por segurança, o bot **nunca confia num `@usuário` digitado** pela pessoa — ele usa o
 `@usuário` que o próprio Telegram manda (verificado, vem no update), então não dá pra alguém
 digitar o `@` de um colega e começar a receber os tickets dele. Se a pessoa não tiver
 `@usuário` público configurado no Telegram, ou se não estiver cadastrada na aba Agentes com
 esse mesmo `@`, o bot explica o que falta em vez de aceitar qualquer coisa digitada — vale
-tanto pro `/status` quanto pro `/jornada`.
+pro `/status` e pro comando de qualquer grupo de jornada.
 
-Pra habilitar esse comando, é preciso registrar um webhook de entrada (diferente do que já
+Pra habilitar esses comandos, é preciso registrar um webhook de entrada (diferente do que já
 existe hoje, que só *envia* mensagem — isso aqui faz o bot *receber*):
 
 1. Gere um segredo aleatório e cadastre como env var `TELEGRAM_WEBHOOK_SECRET` na Vercel (e
@@ -565,7 +581,9 @@ api/
                           só cobrindo /api/auth-start, /api/auth-callback, /api/auth-logout,
                           /api/me e /api/users via rewrite (ver vercel.json e nota abaixo)
   agents.js              CRUD do mapeamento agente SoftCS -> @telegram
-  chats.js                CRUD dos chats do Telegram + membros (chat_agents)
+  chats.js                CRUD dos chats do Telegram + membros (chat_agents); também cobre
+                          /api/journey-groups via ?action=groups (rewrite, mesma razão do
+                          auth.js) — CRUD dos grupos de jornada da aba Jornadas
   settings.js              credenciais OAuth da SoftCS (tabela settings)
   softcs-oauth.js            conexão OAuth2 da SoftCS: start (botão "Conectar") e callback —
                             um arquivo só cobrindo /api/oauth-start e /api/oauth-callback
@@ -582,16 +600,19 @@ api/
   import-agents.js                importa nome/e-mail em lote (JSON ou stream RSC colado)
   telegram-test.js                  manda uma mensagem de teste pra um chat_id (botão "Testar")
   telegram-webhook.js                 recebe update de ENTRADA do bot (Telegram chamando a
-                                     gente, não o contrário) — trata /status, /stop, /jornada e
-                                     /jornadas (ver README seção 5.1). Autenticado pelo header
+                                     gente, não o contrário) — trata /start, /status, /stop,
+                                     /notificacoes e o comando dinâmico de cada grupo de
+                                     jornada (ver README seção 5.1). Autenticado pelo header
                                      secreto do setWebhook (TELEGRAM_WEBHOOK_SECRET), não por
                                      sessão nem CRON_SECRET
 vercel.json            reescreve /api/auth-start, /api/auth-callback, /api/auth-logout,
-                       /api/me, /api/users, /api/oauth-start e /api/oauth-callback pros
-                       arquivos consolidados acima (com ?action=...) — as URLs externas não
-                       mudam, só a implementação por trás. Existe porque o plano Hobby da
-                       Vercel limita a 12 Serverless Functions por deployment, e um arquivo
-                       por rota estourava isso (chegou a 15; hoje são exatamente 12, no limite).
+                       /api/me, /api/users, /api/oauth-start, /api/oauth-callback e
+                       /api/journey-groups pros arquivos consolidados acima (com ?action=...)
+                       — as URLs externas não mudam, só a implementação por trás. Existe
+                       porque o plano Hobby da Vercel limita a 12 Serverless Functions por
+                       deployment, e um arquivo por rota estourava isso (chegou a 15; hoje
+                       são exatamente 12, no limite — qualquer endpoint novo precisa entrar
+                       via ?action= num arquivo já existente, não um arquivo próprio).
 lib/
   db.js                 conexão com o Neon
   auth.js                 sessão/cookie, checagem de domínio @chatbotmaker.io + allowlist,
@@ -600,15 +621,25 @@ lib/
                           mapWithConcurrency etc.), compartilhados por discover-tickets.js
                           e poll-tickets.js
   ticket-notify.js          notifyTicketEvent() resolve @menção + nome do estágio + chat(s)
-                            alvo (por criador via chat_agents E por jornada via
-                            chat_journeys, aditivo — ver getTargetChatIds()) e manda a
-                            mensagem no Telegram; processTicket() compara um ticket com
-                            ticket_state, grava e decide se notifica; processClosedTicket()
-                            faz o mesmo pra tickets num estágio de encerramento — usados por
-                            poll-tickets.js E discover-tickets.js (busca manual também
-                            grava/notifica, não só o polling)
+                            alvo (por criador via chat_agents E por grupo de jornada via
+                            journey_group_items + chat_journey_groups, aditivo — ver
+                            getTargetChatIds()) e manda a mensagem no Telegram;
+                            processTicket() compara um ticket com ticket_state, grava e
+                            decide se notifica; processClosedTicket() faz o mesmo pra
+                            tickets num estágio de encerramento — usados por poll-tickets.js
+                            E discover-tickets.js (busca manual também grava/notifica, não
+                            só o polling)
+  journey-groups.js         slugifyCommand() — transforma o nome de um grupo de jornada no
+                            comando de verdade do bot (minúsculo, sem acento, só
+                            [a-z0-9_]); usado tanto no CRUD (api/chats.js) quanto ao
+                            interpretar o comando digitado (api/telegram-webhook.js)
   agents.js              busca o @username cadastrado pro criador do ticket
-  telegram.js             envio de mensagem via Bot API (um chat ou broadcast pra vários)
+  telegram.js             envio de mensagem via Bot API (um chat ou broadcast pra vários),
+                          com reply_markup opcional (botão inline ou de teclado — ver
+                          telegram-keyboards.js)
+  telegram-keyboards.js      keyboardMarkup() (botão de teclado, manda o texto como
+                            comando) e inlineLinkMarkup() (botão inline, abre link de
+                            verdade) — usados por api/telegram-webhook.js
   settings.js              leitura/escrita da tabela settings
   softcs-api.js             token OAuth (refresh automático via getValidAccessToken,
                             checado no início de toda chamada; renewTokenAtCycleEnd garante
@@ -620,12 +651,14 @@ lib/
 sql/
   schema.sql            tabelas: agent_mapping (softcs_user_id, telegram_username opcional,
                          display_name, email), processed_webhook_events, telegram_chats
-                         (grupos/canais e inscrições pessoais via /status, is_personal),
-                         chat_agents (membros de cada chat, roteamento por criador),
-                         chat_journeys (inscrição por jornada via /jornada, roteamento por
-                         cliente), settings, softcs_oauth_tokens, oauth_pkce_state,
-                         stage_labels (nome, posição e is_closed_stage de cada coluna do
-                         Kanban), allowed_users (allowlist de login),
+                         (grupos/canais e inscrições pessoais via /status ou grupo de
+                         jornada, is_personal), chat_agents (membros de cada chat,
+                         roteamento por criador), journey_groups (nome + command de cada
+                         grupo da aba Jornadas), journey_group_items (quais jornadas
+                         entram em cada grupo), chat_journey_groups (quem segue cada
+                         grupo, roteamento por cliente), settings, softcs_oauth_tokens,
+                         oauth_pkce_state, stage_labels (nome, posição e is_closed_stage
+                         de cada coluna do Kanban), allowed_users (allowlist de login),
                          sessions (login do painel), google_oauth_state, ticket_state
                          (snapshot de cada ticket aberto — estágio, título, prioridade,
                          cliente, client_id e journey_names — usado pelo polling pra

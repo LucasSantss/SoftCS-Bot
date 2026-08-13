@@ -193,15 +193,38 @@ alter table ticket_state add column if not exists client_id text;
 -- jornada (ver chat_journeys), além do roteamento por criador que já existia.
 alter table ticket_state add column if not exists journey_names text[];
 
--- Inscrição de um chat (grupo ou DM pessoal via /jornada — ver
--- api/telegram-webhook.js) num nome de jornada: todo ticket cujo cliente
--- esteja nessa jornada notifica esse chat, além do roteamento por criador.
--- journey_name guarda o texto exatamente como aparece em
--- ticket_state.journey_names (case sensitivo — o comando /jornada resolve
--- a grafia certa comparando sem diferenciar maiúsculas/minúsculas antes de
--- gravar aqui).
-create table if not exists chat_journeys (
-  chat_id text not null references telegram_chats (chat_id) on delete cascade,
+-- Grupo de jornadas cadastrado no painel (aba Jornadas): junta várias
+-- jornadas sob um nome só, e esse nome vira um comando de verdade no bot
+-- (ex: grupo "Onboarding Ativo" -> comando /onboarding_ativo). `command` é
+-- o slug gerado a partir de `name` (minúsculo, sem acento, só
+-- [a-z0-9_] — ver slugifyCommand() em lib/journey-groups.js) e é a chave
+-- primária porque É o texto que a pessoa digita/toca no Telegram; não faz
+-- sentido dois grupos colidirem no mesmo comando.
+create table if not exists journey_groups (
+  command text primary key,
+  name text not null,
+  created_at timestamptz not null default now()
+);
+
+-- Quais jornadas pertencem a cada grupo (N:N) — journey_name é o texto
+-- exatamente como aparece em ticket_state.journey_names. `on update cascade`
+-- porque renomear um grupo muda `command` (é derivado do nome — ver
+-- slugifyCommand em lib/journey-groups.js), e isso precisa propagar sem
+-- perder os vínculos já cadastrados.
+create table if not exists journey_group_items (
+  command text not null references journey_groups (command) on delete cascade on update cascade,
   journey_name text not null,
-  primary key (chat_id, journey_name)
+  primary key (command, journey_name)
+);
+
+-- Inscrição de um chat (DM pessoal — a pessoa toca/digita o comando do
+-- grupo no bot) num grupo de jornadas: todo ticket cujo cliente esteja em
+-- QUALQUER jornada do grupo notifica esse chat, além do roteamento por
+-- criador que já existia (chat_agents). Ver getTargetChatIds() em
+-- lib/ticket-notify.js e o handler de comando dinâmico em
+-- api/telegram-webhook.js.
+create table if not exists chat_journey_groups (
+  chat_id text not null references telegram_chats (chat_id) on delete cascade,
+  command text not null references journey_groups (command) on delete cascade on update cascade,
+  primary key (chat_id, command)
 );
