@@ -63,6 +63,13 @@ create table if not exists softcs_oauth_tokens (
 -- Caso a tabela já existisse de uma versão anterior com refresh_token not null.
 alter table softcs_oauth_tokens alter column refresh_token drop not null;
 
+-- Trava pra renovação de token não rodar em paralelo (ver getValidAccessToken
+-- em lib/softcs-api.js) — cada renovação bem-sucedida invalida o
+-- refresh_token anterior (rotação), então duas chamadas concorrentes
+-- renovando ao mesmo tempo faziam uma "perder a corrida" e gravar por cima
+-- um token já obsoleto, quebrando a conexão (invalid_grant na próxima vez).
+alter table softcs_oauth_tokens add column if not exists refreshing_since timestamptz;
+
 -- Estado temporário do fluxo OAuth (Authorization Code + PKCE).
 create table if not exists oauth_pkce_state (
   state text primary key,
