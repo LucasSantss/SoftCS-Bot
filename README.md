@@ -242,8 +242,10 @@ criador, a notificação cai pra todos os chats ativos.
 > doc deles está desatualizada/errada nesse ponto — `client_secret_basic` com Basic Auth
 > simplesmente não funciona como documentado. `api/softcs-oauth.js` e `lib/softcs-api.js` já
 > foram atualizados pra esse padrão. `getValidAccessToken()` renova sozinho quando o
-> `access_token` está perto de expirar, e `maybeRenewTokenAlternating()` (chamado no fim de
-> cada ciclo do polling) agora tem efeito de verdade — não é mais um no-op.
+> `access_token` está perto de expirar (checado no início de toda chamada), e
+> `renewTokenAtCycleEnd()` (chamado no fim de cada ciclo do polling, sem pular nenhuma
+> finalização — ver "Detecção via polling") garante essa renovação mesmo se um dos dois crons
+> configurados falhar num ciclo específico.
 
 > Nota técnica: a API pagina como `{ data: [...], pagination: { hasMore, nextOffset } }`,
 > não `{ items: [...] }` como a documentação sugere — `extractItems()` em
@@ -376,6 +378,11 @@ por ele também nesse DM, além de onde já ia antes. Fica valendo permanentemen
 de qualquer atualização/mudança no sistema — não precisa repetir o comando toda vez. Pra
 parar, a própria pessoa manda `/stop` a qualquer momento (desativa só o chat dela, sem precisar
 de administrador); pra reativar depois, é só mandar `/status` de novo.
+
+Cada inscrição via `/status` (`telegram_chats.is_personal = true`) aparece na aba **Chats**,
+numa lista separada dos grupos ("Inscrições pessoais") — mostra o nome do agente, permite
+desativar manualmente e testar o envio, igual a qualquer outro chat, só sem o painel de
+membros (aqui o "membro" é sempre o próprio dono do chat).
 
 Por segurança, o bot **nunca confia num `@usuário` digitado** pela pessoa — ele usa o
 `@usuário` que o próprio Telegram manda (verificado, vem no update), então não dá pra alguém
@@ -557,10 +564,10 @@ lib/
   agents.js              busca o @username cadastrado pro criador do ticket
   telegram.js             envio de mensagem via Bot API (um chat ou broadcast pra vários)
   settings.js              leitura/escrita da tabela settings
-  softcs-api.js             token OAuth (refresh automático via getValidAccessToken +
-                            maybeRenewTokenAlternating, que só tenta de fato uma finalização
-                            de ciclo sim, outra não) + chamadas à API da SoftCS (getClients,
-                            getClientTickets)
+  softcs-api.js             token OAuth (refresh automático via getValidAccessToken,
+                            checado no início de toda chamada; renewTokenAtCycleEnd garante
+                            isso também no fim de cada ciclo do polling, sem pular nenhum) +
+                            chamadas à API da SoftCS (getClients, getClientTickets)
   github-actions.js          triggerPollWorkflows() dispara poll-known.yml e
                             poll-tickets.yml na hora via API do GitHub — chamado logo depois
                             de uma reconexão OAuth bem-sucedida (GITHUB_DISPATCH_TOKEN)

@@ -8,14 +8,19 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const rows = await sql`
       select
-        c.chat_id, c.label, c.active, c.thread_id, c.created_at,
+        c.chat_id, c.label, c.active, c.thread_id, c.is_personal, c.created_at,
         coalesce(
           json_agg(a.softcs_user_id) filter (where a.softcs_user_id is not null),
           '[]'
-        ) as member_ids
+        ) as member_ids,
+        -- só populado quando is_personal (uma inscrição via /status sempre tem
+        -- exatamente um membro, o próprio dono do chat) — nome pra exibir na UI
+        -- em vez do chat_id cru, ver aba Chats.
+        max(am.display_name) filter (where c.is_personal) as agent_display_name
       from telegram_chats c
       left join chat_agents a on a.chat_id = c.chat_id
-      group by c.chat_id, c.label, c.active, c.thread_id, c.created_at
+      left join agent_mapping am on am.softcs_user_id = a.softcs_user_id
+      group by c.chat_id, c.label, c.active, c.thread_id, c.is_personal, c.created_at
       order by c.created_at desc
     `;
     res.status(200).json(rows);

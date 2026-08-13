@@ -1,5 +1,5 @@
 import sql from '../lib/db.js';
-import { getValidAccessToken, getClients, getClientTickets, maybeRenewTokenAlternating } from '../lib/softcs-api.js';
+import { getValidAccessToken, getClients, getClientTickets, renewTokenAtCycleEnd } from '../lib/softcs-api.js';
 import { processTicket, SEED_FLAG_KEY } from '../lib/ticket-notify.js';
 import { getSetting, setSettings } from '../lib/settings.js';
 import {
@@ -155,9 +155,9 @@ export default async function handler(req, res) {
               : Number.parseInt(await getSetting(CURSOR_KEY), 10) || 0
           );
 
-    // Tenta renovar o token no fim de cada finalização, intercalado (uma
-    // vez sim, outra não — ver maybeRenewTokenAlternating em lib/softcs-api.js).
-    await maybeRenewTokenAlternating();
+    // Garante o token renovado no fim de cada finalização, sem pular
+    // nenhuma — ver renewTokenAtCycleEnd em lib/softcs-api.js.
+    await renewTokenAtCycleEnd();
 
     res.status(200).json({ seeding, ...result });
   } catch (error) {

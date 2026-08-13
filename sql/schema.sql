@@ -38,6 +38,11 @@ create table if not exists telegram_chats (
 -- tópicos existentes, só devolve o id quando alguém posta neles.
 alter table telegram_chats add column if not exists thread_id text;
 
+-- true só pra chats criados pelo comando /status (DM pessoal de um agente
+-- com o bot — ver api/telegram-webhook.js), pra diferenciar visualmente na
+-- aba Chats de um grupo/canal cadastrado à mão. Nunca marcado manualmente.
+alter table telegram_chats add column if not exists is_personal boolean not null default false;
+
 -- Credenciais da aplicação OAuth2 da SoftCS, usadas pela busca "Buscar tickets".
 create table if not exists settings (
   key text primary key,

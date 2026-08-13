@@ -605,6 +605,8 @@ const chatForm = document.getElementById("chatForm");
 const chatStatus = document.getElementById("chatStatus");
 const chatList = document.getElementById("chatList");
 const chatEmpty = document.getElementById("chatEmpty");
+const personalChatList = document.getElementById("personalChatList");
+const personalChatEmpty = document.getElementById("personalChatEmpty");
 const newChatMembers = document.getElementById("newChatMembers");
 
 // Preenche um <select multiple> com todos os agentes conhecidos, marcando os
@@ -625,16 +627,24 @@ function populateAgentOptions(selectEl, selectedIds) {
 async function loadChats() {
   try {
     const chats = await api("/api/chats");
+    const groupChats = chats.filter((c) => !c.is_personal);
+    const personalChats = chats.filter((c) => c.is_personal);
+
     chatList.innerHTML = "";
-    chatEmpty.style.display = chats.length ? "none" : "block";
-    for (const chat of chats) renderChatRow(chat);
+    chatEmpty.style.display = groupChats.length ? "none" : "block";
+    for (const chat of groupChats) renderChatRow(chat, chatList);
+
+    personalChatList.innerHTML = "";
+    personalChatEmpty.style.display = personalChats.length ? "none" : "block";
+    for (const chat of personalChats) renderChatRow(chat, personalChatList);
+
     populateAgentOptions(newChatMembers, []);
   } catch (err) {
     setStatus(chatStatus, err.message, true);
   }
 }
 
-function renderChatRow(chat) {
+function renderChatRow(chat, container) {
   const wrapper = document.createElement("div");
 
   const row = document.createElement("div");
@@ -646,7 +656,7 @@ function renderChatRow(chat) {
     </div>
     <div class="list-item-actions">
       <span class="test-result status-line"></span>
-      <button class="btn btn-secondary members-btn">Membros (${(chat.member_ids || []).length})</button>
+      ${chat.is_personal ? "" : `<button class="btn btn-secondary members-btn">Membros (${(chat.member_ids || []).length})</button>`}
       <button class="btn btn-secondary test-btn">Testar</button>
       <label class="switch">
         <input type="checkbox" />
@@ -655,7 +665,9 @@ function renderChatRow(chat) {
       <button class="icon-btn" title="Remover">🗑</button>
     </div>
   `;
-  row.querySelector(".list-item-title").textContent = chat.label || "(sem rótulo)";
+  row.querySelector(".list-item-title").textContent = chat.is_personal
+    ? chat.agent_display_name || chat.label || "(sem nome)"
+    : chat.label || "(sem rótulo)";
   row.querySelector(".list-item-sub").textContent = chat.thread_id
     ? `${chat.chat_id} · tópico ${chat.thread_id}`
     : chat.chat_id;
@@ -706,50 +718,56 @@ function renderChatRow(chat) {
     }
   });
 
-  // ── Painel de membros (colapsado por padrão) ──
-  const membersPanel = document.createElement("div");
-  membersPanel.style.display = "none";
-  membersPanel.style.margin = "0.5rem 0 0.75rem";
-  membersPanel.innerHTML = `
-    <select multiple size="6"></select>
-    <div class="form-actions" style="margin-top: 0.5rem;">
-      <button type="button" class="btn btn-primary save-members-btn">Salvar membros</button>
-      <span class="members-status status-line"></span>
-    </div>
-  `;
-  const membersSelect = membersPanel.querySelector("select");
-  const membersStatus = membersPanel.querySelector(".members-status");
+  // ── Painel de membros (colapsado por padrão) — chats pessoais (/status)
+  // não têm isso: o "membro" é sempre o próprio dono do chat, fixo.
+  if (!chat.is_personal) {
+    const membersPanel = document.createElement("div");
+    membersPanel.style.display = "none";
+    membersPanel.style.margin = "0.5rem 0 0.75rem";
+    membersPanel.innerHTML = `
+      <select multiple size="6"></select>
+      <div class="form-actions" style="margin-top: 0.5rem;">
+        <button type="button" class="btn btn-primary save-members-btn">Salvar membros</button>
+        <span class="members-status status-line"></span>
+      </div>
+    `;
+    const membersSelect = membersPanel.querySelector("select");
+    const membersStatus = membersPanel.querySelector(".members-status");
 
-  row.querySelector(".members-btn").addEventListener("click", () => {
-    const isOpen = membersPanel.style.display !== "none";
-    if (isOpen) {
-      membersPanel.style.display = "none";
-    } else {
-      populateAgentOptions(membersSelect, chat.member_ids);
-      membersPanel.style.display = "block";
-    }
-  });
+    row.querySelector(".members-btn").addEventListener("click", () => {
+      const isOpen = membersPanel.style.display !== "none";
+      if (isOpen) {
+        membersPanel.style.display = "none";
+      } else {
+        populateAgentOptions(membersSelect, chat.member_ids);
+        membersPanel.style.display = "block";
+      }
+    });
 
-  membersPanel.querySelector(".save-members-btn").addEventListener("click", async (event) => {
-    const btn = event.currentTarget;
-    const memberIds = Array.from(membersSelect.selectedOptions).map((o) => o.value);
-    btn.disabled = true;
-    try {
-      await api("/api/chats", {
-        method: "POST",
-        body: JSON.stringify({ chat_id: chat.chat_id, label: chat.label, thread_id: chat.thread_id, member_ids: memberIds }),
-      });
-      setStatus(membersStatus, "Salvo.", false);
-      await loadChats();
-    } catch (err) {
-      setStatus(membersStatus, err.message, true);
-    } finally {
-      btn.disabled = false;
-    }
-  });
+    membersPanel.querySelector(".save-members-btn").addEventListener("click", async (event) => {
+      const btn = event.currentTarget;
+      const memberIds = Array.from(membersSelect.selectedOptions).map((o) => o.value);
+      btn.disabled = true;
+      try {
+        await api("/api/chats", {
+          method: "POST",
+          body: JSON.stringify({ chat_id: chat.chat_id, label: chat.label, thread_id: chat.thread_id, member_ids: memberIds }),
+        });
+        setStatus(membersStatus, "Salvo.", false);
+        await loadChats();
+      } catch (err) {
+        setStatus(membersStatus, err.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    });
 
-  wrapper.append(row, membersPanel);
-  chatList.appendChild(wrapper);
+    wrapper.append(row, membersPanel);
+  } else {
+    wrapper.append(row);
+  }
+
+  container.appendChild(wrapper);
 }
 
 chatForm.addEventListener("submit", async (event) => {

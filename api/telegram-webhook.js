@@ -42,8 +42,9 @@ async function handleStatus({ chatId, username, displayName }) {
   }
 
   await sql`
-    insert into telegram_chats (chat_id, label, active) values (${String(chatId)}, ${`@${username} (privado)`}, true)
-    on conflict (chat_id) do update set active = true
+    insert into telegram_chats (chat_id, label, active, is_personal)
+    values (${String(chatId)}, ${`@${username} (privado)`}, true, true)
+    on conflict (chat_id) do update set active = true, is_personal = true
   `;
   await sql`
     insert into chat_agents (chat_id, softcs_user_id) values (${String(chatId)}, ${agent.softcs_user_id})

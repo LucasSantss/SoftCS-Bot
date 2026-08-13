@@ -178,10 +178,23 @@
             <p id="chatStatus" class="status-line"></p>
           </div>
 
+          <h3 style="margin: 1.25rem 0 0.5rem;">Grupos e canais</h3>
           <div class="list" id="chatList"></div>
           <div class="empty-state" id="chatEmpty" style="display:none">
             <p>Nenhum chat cadastrado ainda.</p>
             <p class="muted">Adicione o bot ao grupo e cole o chat_id acima para começar a receber notificações.</p>
+          </div>
+
+          <h3 style="margin: 1.5rem 0 0.5rem;">Inscrições pessoais (/status)</h3>
+          <p class="muted" style="margin-bottom: 0.5rem;">
+            Agentes que falaram no privado com o bot e mandaram /status — recebem aqui os
+            tickets criados por eles, além de onde já ia antes. Eles mesmos controlam isso
+            (/status pra ativar, /stop pra desativar); dá pra desativar por aqui também.
+          </p>
+          <div class="list" id="personalChatList"></div>
+          <div class="empty-state" id="personalChatEmpty" style="display:none">
+            <p>Ninguém se inscreveu ainda.</p>
+            <p class="muted">Basta o agente falar no privado com o bot e mandar /status.</p>
           </div>
         </div>
 
