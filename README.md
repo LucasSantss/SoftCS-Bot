@@ -414,29 +414,34 @@ no bot e como a inscrição funciona pro lado de quem usa o Telegram.
   os dois são mutuamente exclusivos na Bot API).
 
 Além de mandar notificação pros grupos/chats cadastrados, um agente pode falar **no privado**
-com o bot:
+com o bot — mas só se o `@usuário` do Telegram dele já estiver cadastrado na aba **Agentes**
+(pedido explícito). Sem isso, **nenhum comando pessoal roda** — nem `/start`, nem `/status`,
+nem `/notificacoes`, nem o de nenhum grupo de jornada — o bot só devolve um aviso dizendo que,
+sem cadastro, a pessoa não recebe notificação nenhuma, e explica como resolver (configurar um
+`@usuário` público no Telegram, se ainda não tiver um, e pedir pra um administrador cadastrar
+na aba Agentes). Isso não vale pro `/id` (funciona pra qualquer um, é um utilitário de setup,
+não uma inscrição pessoal).
+
+Com o cadastro em dia:
 
 - **`/start`** — a primeira mensagem que o Telegram manda sozinho quando alguém abre o chat
   com o bot. Explica as funções disponíveis e manda dois avisos: um com botão **inline**
   (permanece na mensagem, abre link de verdade) pro board de tickets da SoftCS, e outro com
   botão de **teclado** (aparece embaixo da caixa de digitar, tocar manda o comando) pros
   comandos `/status` e `/notificacoes`.
-- **`/status`** — se o `@usuário` do Telegram da pessoa bater com o que está cadastrado na aba
-  Agentes, o bot passa a mandar uma cópia de toda notificação de ticket **criado por ela**
-  também nesse DM, além de onde já ia antes. Fica valendo permanentemente até `/stop`.
+- **`/status`** — o bot passa a mandar uma cópia de toda notificação de ticket **criado por
+  ela** também nesse DM, além de onde já ia antes. Fica valendo permanentemente até `/stop`.
 - **`/notificacoes`** — lista os grupos de jornada cadastrados na aba **Jornadas** como botões
   de teclado; tocar num manda o comando daquele grupo.
 - **Comando de cada grupo de jornada** (ex: `/onboarding_ativo`) — liga/alterna a inscrição
   nesse grupo: a pessoa passa a receber, no privado, **todo ticket de qualquer cliente numa
-  das jornadas daquele grupo**, não só os que ela criou — e **independente dela estar
-  cadastrada como agente na aba Agentes ou não** (diferente do `/status`: um grupo de jornada
-  é sobre o cliente, não sobre quem está seguindo, então não exige esse cadastro — só precisa
-  ter `@usuário` público no Telegram). O roteamento por criador (`/status`) e por grupo de
-  jornada são **aditivos** — um ticket pode notificar os dois ao mesmo tempo sem duplicar
-  mensagem no mesmo chat. Mandar o mesmo comando de novo **desliga** só aquele grupo (alterna,
-  não precisa de `/stop`).
+  das jornadas daquele grupo**, não só os que ela criou. O roteamento por criador (`/status`) e
+  por grupo de jornada são **aditivos** — um ticket pode notificar os dois ao mesmo tempo sem
+  duplicar mensagem no mesmo chat. Mandar o mesmo comando de novo **desliga** só aquele grupo
+  (alterna, não precisa de `/stop`).
 - **`/stop`** — desliga tudo de uma vez (o `/status` e qualquer grupo de jornada seguido),
-  sem precisar de administrador. Pra reativar, é só mandar os comandos de novo.
+  sem precisar de administrador. Pra reativar, é só mandar os comandos de novo (exige cadastro
+  em dia igual aos outros).
 
 **Grupos de jornada são cadastrados na aba Jornadas do painel**, não pelo Telegram: você
 escolhe um nome (ex: "Onboarding Ativo") e quais jornadas entram nele (multi-select,
@@ -467,12 +472,9 @@ chat).
 
 Por segurança, o bot **nunca confia num `@usuário` digitado** pela pessoa — ele usa o
 `@usuário` que o próprio Telegram manda (verificado, vem no update), então não dá pra alguém
-digitar o `@` de um colega e começar a receber os tickets dele. Pro `/status`, isso ainda
-exige estar cadastrado na aba Agentes com esse mesmo `@` (é "seus" tickets — precisa confirmar
-quem é a pessoa); pro comando de um grupo de jornada, só exige ter `@usuário` público
-configurado, **não precisa estar cadastrado como agente** (pedido explícito — um grupo de
-jornada é sobre o cliente, não sobre o assinante). Nos dois casos, se a condição não bater, o
-bot explica o que falta em vez de aceitar qualquer coisa digitada.
+digitar o `@` de um colega e começar a receber os tickets dele. Esse `@` também precisa bater
+com um cadastro na aba Agentes pra qualquer comando pessoal rodar (ver acima); se a condição
+não bater, o bot explica o que falta em vez de aceitar qualquer coisa digitada.
 
 Pra habilitar esses comandos, é preciso registrar um webhook de entrada (diferente do que já
 existe hoje, que só *envia* mensagem — isso aqui faz o bot *receber*):

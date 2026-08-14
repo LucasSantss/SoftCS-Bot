@@ -62,31 +62,13 @@ async function handleStart() {
   ];
 }
 
-// /status: a pessoa fala com o bot no privado e, se o @username do Telegram
-// dela (verificado pelo próprio Telegram no update, não digitado por ela)
-// bater com o que está cadastrado na aba Agentes, o chat privado vira um
+// /status: a pessoa fala com o bot no privado e, já que o handler só chega
+// aqui depois de confirmar (mais abaixo) que o @username do Telegram dela
+// bate com o que está cadastrado na aba Agentes, o chat privado vira um
 // alvo de notificação — dali em diante, todo ticket criado por ela também
 // manda uma cópia pro DM, além de onde já ia antes (grupo etc.), até alguém
-// desativar esse chat na aba Chats. De propósito NÃO aceita a pessoa digitar
-// um @ pra se cadastrar como outra pessoa — isso furaria a restrição de só
-// agentes já mapeados poderem se inscrever.
-async function handleStatus({ chatId, username }) {
-  if (!username) {
-    return (
-      'Seu Telegram não tem um @usuário público configurado — sem isso não dá pra saber ' +
-      'quem você é. Configure um @usuário em Ajustes > Editar perfil no Telegram e mande ' +
-      '/status de novo.'
-    );
-  }
-
-  const agent = await findAgentByTelegramUsername(username);
-  if (!agent) {
-    return (
-      `Não encontrei @${escapeHtml(username)} cadastrado na aba Agentes do painel. Peça pra um ` +
-      'administrador te mapear lá (com esse mesmo @usuário) e mande /status de novo.'
-    );
-  }
-
+// desativar esse chat na aba Chats.
+async function handleStatus({ chatId, username, agent }) {
   await sql`
     insert into telegram_chats (chat_id, label, active, is_personal)
     values (${String(chatId)}, ${`@${username} (privado)`}, true, true)
@@ -141,25 +123,10 @@ async function handleNotifications() {
 // Comando dinâmico de um grupo de jornada (ex: /onboarding_ativo, criado na
 // aba Jornadas): alterna a inscrição (liga se não tinha, desliga se já
 // tinha) — todo ticket cujo cliente esteja em QUALQUER jornada do grupo
-// notifica esse chat, independente de quem criou o ticket, e independente
-// de quem está seguindo o grupo ser um agente cadastrado na aba Agentes ou
-// não (pedido explícito — diferente do /status, que é sobre "seus" tickets
-// e por isso precisa confirmar quem é a pessoa; um grupo de jornada é sobre
-// o CLIENTE, não sobre o assinante, então não faz sentido travar isso atrás
-// de um cadastro de agente). Só exige ter um @usuário público no Telegram,
-// pra dar pra identificar o chat na aba Chats.
-async function handleGroupToggle({ chatId, username, command }) {
-  if (!username) {
-    return (
-      'Seu Telegram não tem um @usuário público configurado — sem isso não dá pra saber ' +
-      'quem você é. Configure um @usuário em Ajustes > Editar perfil no Telegram e tente de novo.'
-    );
-  }
-
-  // Só usado pra personalizar a saudação (nome) quando bater — não bloqueia
-  // a inscrição se a pessoa não estiver cadastrada como agente.
-  const agent = await findAgentByTelegramUsername(username);
-
+// notifica esse chat, independente de quem criou o ticket. `agent` só é
+// usado aqui pra personalizar a saudação (nome) — o cadastro em si já foi
+// exigido mais abaixo, antes de chegar em qualquer comando pessoal.
+async function handleGroupToggle({ chatId, username, command, agent }) {
   const groupRows = await sql`select name from journey_groups where command = ${command}`;
   const group = groupRows[0];
   if (!group) return null; // não é um comando de grupo conhecido — deixa cair pro "não reconheço"
@@ -189,6 +156,20 @@ async function handleGroupToggle({ chatId, username, command }) {
     `— de qualquer criador, não só os seus. Mande /${command} de novo pra parar.`
   );
 }
+
+// Pedido explícito: nenhum comando pessoal (nem os de grupo de jornada)
+// funciona pra quem não estiver cadastrado na aba Agentes com esse
+// @usuário — a pessoa só recebe esse aviso, nada mais é processado.
+// Reverte o que valia pra grupo de jornada (não exigia cadastro de agente
+// — ver commit "Grupo de jornada não exige mais cadastro de agente pra se
+// inscrever"): agora TODOS os comandos pessoais exigem, sem exceção. Não
+// se aplica a /id (funciona em qualquer chat, é um utilitário de setup
+// pra admin achar chat_id/thread_id, não é sobre notificação pessoal de
+// quem manda).
+const NOT_REGISTERED_MESSAGE =
+  'Você ainda não pode usar comandos nem receber notificações por aqui — seu @usuário do Telegram não está ' +
+  'cadastrado na aba Agentes do painel. Peça pra um administrador te cadastrar lá (e, se ainda não tiver um ' +
+  '@usuário público, configure um em Ajustes > Editar perfil no Telegram) e tente de novo.';
 
 function parseCommand(text) {
   const match = /^\/(\w+)(?:@\w+)?\s*(.*)$/.exec((text ?? '').trim());
@@ -246,6 +227,18 @@ export default async function handler(req, res) {
   const chatId = message.chat.id;
   const username = message.from?.username ?? null;
 
+  const agent = username ? await findAgentByTelegramUsername(username) : null;
+  if (!agent) {
+    try {
+      await sendTelegramMessageToChat(chatId, NOT_REGISTERED_MESSAGE, undefined);
+      res.status(200).json({ ok: true, blocked: true });
+    } catch (error) {
+      console.error('Erro respondendo aviso de não cadastrado:', error);
+      res.status(200).json({ ok: true, error: error.message });
+    }
+    return;
+  }
+
   try {
     let reply;
     switch (command) {
@@ -253,7 +246,7 @@ export default async function handler(req, res) {
         reply = await handleStart();
         break;
       case 'status':
-        reply = await handleStatus({ chatId, username });
+        reply = await handleStatus({ chatId, username, agent });
         break;
       case 'stop':
         reply = await handleStop({ chatId });
@@ -265,7 +258,7 @@ export default async function handler(req, res) {
         // Não é um comando fixo — só vale a pena checar se é um comando de
         // grupo de jornada (consulta o banco); qualquer outra coisa é
         // ignorada em silêncio, sem gastar consulta à toa.
-        reply = await handleGroupToggle({ chatId, username, command });
+        reply = await handleGroupToggle({ chatId, username, command, agent });
     }
 
     if (reply == null) {
