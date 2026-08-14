@@ -21,6 +21,33 @@ async function getStageLabels() {
   );
 }
 
+// Processa a lista de tickets já buscada, em paralelo (até TICKET_CONCURRENCY
+// por vez) em vez de um por vez — cada ticket faz pelo menos um select +
+// upsert no banco (ver processTicket/processClosedTicket em
+// lib/ticket-notify.js), e isso sequencial some com dezenas de tickets
+// (medido ao vivo: ~40s pra ~70 tickets conhecidos), estourando o timeout do
+// cron externo (cron-job.org) mesmo com o handler dentro do limite da
+// Vercel. Tickets são independentes entre si (ticket_id distinto cada um),
+// sem corrida possível.
+async function processTicketsConcurrently(tickets, { stageLabels, seeding, buildOpenArgs }) {
+  const results = await mapWithConcurrency(tickets, TICKET_CONCURRENCY, async (ticket) => {
+    if (stageLabels[ticket.stageId]?.is_closed_stage) {
+      const result = await processClosedTicket(ticket, { stageLabels, seeding });
+      return { open: false, notified: result.notified };
+    }
+    const result = await processTicket(ticket, { stageLabels, seeding, ...buildOpenArgs(ticket) });
+    return { open: true, notified: result.notified };
+  });
+
+  let ticketsSeen = 0;
+  let notified = 0;
+  for (const r of results) {
+    if (r.open) ticketsSeen += 1;
+    if (r.notified) notified += 1;
+  }
+  return { ticketsSeen, notified };
+}
+
 // Fase prioritária: reconfirma só os clientes donos de tickets que JÁ estão
 // em ticket_state, antes de gastar orçamento de requisição descobrindo
 // tickets novos em clientes nunca vistos. Poucos clientes (um por ticket já
@@ -41,26 +68,13 @@ async function handleKnown(seeding) {
       return null;
     })
   );
+  const allTickets = ticketLists.flatMap((r) => (r ? extractItems(r) : []));
 
-  let ticketsSeen = 0;
-  let notified = 0;
-
-  for (const ticketsResponse of ticketLists) {
-    if (!ticketsResponse) continue;
-    for (const ticket of extractItems(ticketsResponse)) {
-      if (stageLabels[ticket.stageId]?.is_closed_stage) {
-        // Estágio marcado como "encerrado" (ex: Resolvido) — notifica
-        // "resolvido" e remove de ticket_state (ver processClosedTicket).
-        // NÃO usa ticket.closedAt pra essa decisão (ver nota em schema.sql).
-        const result = await processClosedTicket(ticket, { stageLabels, seeding });
-        if (result.notified) notified += 1;
-        continue;
-      }
-      ticketsSeen += 1;
-      const result = await processTicket(ticket, { stageLabels, clientName: extractClientName(ticket), seeding });
-      if (result.notified) notified += 1;
-    }
-  }
+  const { ticketsSeen, notified } = await processTicketsConcurrently(allTickets, {
+    stageLabels,
+    seeding,
+    buildOpenArgs: (ticket) => ({ clientName: extractClientName(ticket) }),
+  });
 
   return { phase: 'known', knownClients: clientIds.length, ticketsSeen, notified };
 }
@@ -84,28 +98,16 @@ async function handleDiscover(seeding, offset) {
       return null;
     })
   );
+  const allTickets = ticketLists.flatMap((r) => (r ? extractItems(r) : []));
 
-  let ticketsSeen = 0;
-  let notified = 0;
-
-  for (const ticketsResponse of ticketLists) {
-    if (!ticketsResponse) continue;
-    for (const ticket of extractItems(ticketsResponse)) {
-      if (stageLabels[ticket.stageId]?.is_closed_stage) {
-        const result = await processClosedTicket(ticket, { stageLabels, seeding });
-        if (result.notified) notified += 1;
-        continue;
-      }
-      ticketsSeen += 1;
-      const result = await processTicket(ticket, {
-        stageLabels,
-        clientName: extractClientName(ticket, clientNameById),
-        journeyNames: clientJourneyById.get(ticket.mainClientId) ?? null,
-        seeding,
-      });
-      if (result.notified) notified += 1;
-    }
-  }
+  const { ticketsSeen, notified } = await processTicketsConcurrently(allTickets, {
+    stageLabels,
+    seeding,
+    buildOpenArgs: (ticket) => ({
+      clientName: extractClientName(ticket, clientNameById),
+      journeyNames: clientJourneyById.get(ticket.mainClientId) ?? null,
+    }),
+  });
 
   const hasMoreClients = Boolean(clientPagination?.hasMore);
   const nextOffset = clientPagination?.nextOffset ?? offset + clients.length;
