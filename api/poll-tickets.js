@@ -145,6 +145,16 @@ async function handleDiscover(seeding, offset) {
 // `ticket_poll_seeded` não estiver marcada, as duas fases só gravam o
 // snapshot, sem notificar; a flag é marcada quando uma volta completa da
 // fase de descoberta termina.
+//
+// Além dessas duas chamadas programadas, toda chamada da fase "known" que
+// pegar o access_token perto de expirar (<60s, ver REFRESH_MARGIN_MS em
+// lib/softcs-api.js) e renovar de verdade também dispara, na mesma
+// resposta, uma página extra de descoberta (`discoveryOnTokenRefresh` no
+// JSON de retorno) — como o token dura 900s, isso acontece por volta de
+// uma em cada ~7-14 chamadas da fase known (que roda de 1-2 em 1-2min),
+// então tickets novos são descobertos amarrados à renovação de verdade do
+// token, sem depender só do intervalo fixo do job de descoberta do cron
+// externo (pedido explícito).
 export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
   const authHeader = req.headers.authorization ?? '';
@@ -162,9 +172,10 @@ export default async function handler(req, res) {
     await getValidAccessToken();
 
     const seeding = (await getSetting(SEED_FLAG_KEY)) !== 'true';
+    const phase = req.query?.phase === 'known' ? 'known' : 'discover';
 
     const result =
-      req.query?.phase === 'known'
+      phase === 'known'
         ? await handleKnown(seeding)
         : await handleDiscover(
             seeding,
@@ -174,10 +185,21 @@ export default async function handler(req, res) {
           );
 
     // Garante o token renovado no fim de cada finalização, sem pular
-    // nenhuma — ver renewTokenAtCycleEnd em lib/softcs-api.js.
-    await renewTokenAtCycleEnd();
+    // nenhuma — ver renewTokenAtCycleEnd em lib/softcs-api.js. Quando essa
+    // renovação é de verdade (não um cache-hit) e essa chamada era só a
+    // fase "known" (a rápida, chamada de 1-2 em 1-2min pelo cron externo),
+    // aproveita o evento pra também avançar uma página de descoberta de
+    // tickets novos — tickets novos passam a ser vistos no momento em que
+    // o token renova de verdade (~14min, duração real dele), em vez de só
+    // no intervalo fixo do outro job do cron externo.
+    const refreshed = await renewTokenAtCycleEnd();
+    let discoveryOnTokenRefresh = null;
+    if (refreshed && phase === 'known') {
+      const offset = Number.parseInt(await getSetting(CURSOR_KEY), 10) || 0;
+      discoveryOnTokenRefresh = await handleDiscover(seeding, offset);
+    }
 
-    res.status(200).json({ seeding, ...result });
+    res.status(200).json({ seeding, ...result, ...(discoveryOnTokenRefresh ? { discoveryOnTokenRefresh } : {}) });
   } catch (error) {
     console.error('Erro no polling de tickets:', error);
     if (error.rateLimited) {
