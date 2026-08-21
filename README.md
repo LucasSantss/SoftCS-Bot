@@ -250,12 +250,17 @@ cadastrar um chat novo (ou abrindo o painel **Membros** de um já existente), d�
 quais agentes fazem parte dele (multi-select, salvo em `chat_agents`) — quando um desses
 agentes é o criador de um ticket que é criado ou atualizado, a notificação vai
 especificamente pro(s) chat(s) onde ele é membro (é o que faz a `@menção` funcionar de
-verdade: Telegram só notifica quem está no grupo). **Sem membro cadastrado que bata com o
-criador daquele ticket específico (e sem o cliente estar numa jornada que o chat segue), a
-notificação não vai pra lugar nenhum** — nenhum chat/grupo cadastrado recebe ticket "de
-sobra" (pedido explícito, depois de um vazamento real onde um ticket sem mapeamento acabava
-notificando todo mundo — ver `getTargetChatIds()` em `lib/ticket-notify.js`). Ou seja: um
-chat/grupo só existe pra quem está de fato vinculado a ele.
+verdade: Telegram só notifica quem está no grupo). Do lado, o painel **Jornadas** (mesmo
+formulário de cadastro e mesma linha de cada chat existente) marca quais grupos de jornada
+(aba Jornadas) esse chat segue — grava direto em `chat_journey_groups`, a mesma tabela que o
+comando dinâmico do bot usa (ver 5.1), só que sem precisar que alguém mande o comando no
+privado; útil pra já deixar um chat novo (grupo/canal recém-criado) recebendo tickets de uma
+jornada assim que ele é cadastrado. **Sem membro cadastrado que bata com o criador daquele
+ticket específico (e sem o cliente estar numa jornada que o chat segue), a notificação não
+vai pra lugar nenhum** — nenhum chat/grupo cadastrado recebe ticket "de sobra" (pedido
+explícito, depois de um vazamento real onde um ticket sem mapeamento acabava notificando
+todo mundo — ver `getTargetChatIds()` em `lib/ticket-notify.js`). Ou seja: um chat/grupo só
+existe pra quem está de fato vinculado a ele (por membro, por jornada, ou os dois).
 
 > ✅ **Resolvido — `refresh_token` funciona, mas não do jeito que a documentação da SoftCS
 > descreve.** Por muito tempo o `access_token` (dura 15min — `expires_in: 900`) nunca vinha

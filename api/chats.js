@@ -34,7 +34,7 @@ async function handleChats(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { chat_id, label, member_ids, thread_id } = req.body ?? {};
+    const { chat_id, label, member_ids, thread_id, journey_group_commands } = req.body ?? {};
     if (!chat_id) {
       res.status(400).json({ error: 'chat_id é obrigatório' });
       return;
@@ -52,6 +52,24 @@ async function handleChats(req, res) {
         await sql`
           insert into chat_agents (chat_id, softcs_user_id)
           values (${String(chat_id)}, ${softcsUserId})
+          on conflict do nothing
+        `;
+      }
+    }
+
+    // Grupos de jornada que esse chat segue — mesma tabela que o comando
+    // dinâmico do bot usa (chat_journey_groups, ver handleGroupToggle em
+    // api/telegram-webhook.js), só que aqui é o admin escolhendo direto no
+    // painel em vez de exigir que alguém mande o comando no privado. Só
+    // mexe quando o campo vem no body (igual member_ids acima) — salvar só
+    // os membros não deve apagar os grupos de jornada já escolhidos, e
+    // vice-versa (painéis independentes na aba Chats).
+    if (Array.isArray(journey_group_commands)) {
+      await sql`delete from chat_journey_groups where chat_id = ${String(chat_id)}`;
+      for (const command of journey_group_commands) {
+        await sql`
+          insert into chat_journey_groups (chat_id, command)
+          values (${String(chat_id)}, ${command})
           on conflict do nothing
         `;
       }

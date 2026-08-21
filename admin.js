@@ -700,6 +700,7 @@ const chatEmpty = document.getElementById("chatEmpty");
 const personalChatList = document.getElementById("personalChatList");
 const personalChatEmpty = document.getElementById("personalChatEmpty");
 const newChatMembers = document.getElementById("newChatMembers");
+const newChatJourneyGroups = document.getElementById("newChatJourneyGroups");
 
 // Monta o multi-select pesquisável com todos os agentes conhecidos,
 // marcando os que já pertencem ao chat (selectedIds). Usado no form "Novo
@@ -712,27 +713,37 @@ function populateAgentOptions(container, selectedIds) {
   renderMultiSelect(container, options, selectedIds);
 }
 
+// Mesma ideia de populateAgentOptions, mas pros grupos de jornada (aba
+// Jornadas) — `groups` vem de /api/journey-groups, buscado à parte aqui
+// porque loadChats() e loadJourneyGroups() rodam em paralelo no boot(),
+// sem garantia de ordem entre as duas.
+function populateJourneyGroupOptions(container, groups, selectedCommands) {
+  const options = groups.map((g) => ({ value: g.command, label: g.name }));
+  renderMultiSelect(container, options, selectedCommands);
+}
+
 async function loadChats() {
   try {
-    const chats = await api("/api/chats");
+    const [chats, { groups }] = await Promise.all([api("/api/chats"), api("/api/journey-groups")]);
     const groupChats = chats.filter((c) => !c.is_personal);
     const personalChats = chats.filter((c) => c.is_personal);
 
     chatList.innerHTML = "";
     chatEmpty.style.display = groupChats.length ? "none" : "block";
-    for (const chat of groupChats) renderChatRow(chat, chatList);
+    for (const chat of groupChats) renderChatRow(chat, chatList, groups);
 
     personalChatList.innerHTML = "";
     personalChatEmpty.style.display = personalChats.length ? "none" : "block";
-    for (const chat of personalChats) renderChatRow(chat, personalChatList);
+    for (const chat of personalChats) renderChatRow(chat, personalChatList, groups);
 
     populateAgentOptions(newChatMembers, []);
+    populateJourneyGroupOptions(newChatJourneyGroups, groups, []);
   } catch (err) {
     setStatus(chatStatus, err.message, true);
   }
 }
 
-function renderChatRow(chat, container) {
+function renderChatRow(chat, container, journeyGroups) {
   const wrapper = document.createElement("div");
 
   const row = document.createElement("div");
@@ -745,6 +756,7 @@ function renderChatRow(chat, container) {
     <div class="list-item-actions">
       <span class="test-result status-line"></span>
       ${chat.is_personal ? "" : `<button class="btn btn-secondary members-btn">Membros (${(chat.member_ids || []).length})</button>`}
+      <button class="btn btn-secondary journey-groups-btn">Jornadas (${(chat.journey_group_names || []).length})</button>
       <button class="btn btn-secondary test-btn">Testar</button>
       <label class="switch">
         <input type="checkbox" />
@@ -757,8 +769,8 @@ function renderChatRow(chat, container) {
     ? chat.agent_display_name || chat.label || "(sem nome)"
     : chat.label || "(sem rótulo)";
   const subParts = [chat.thread_id ? `${chat.chat_id} · tópico ${chat.thread_id}` : chat.chat_id];
-  if (chat.is_personal && (chat.journey_names || []).length) {
-    subParts.push(`jornadas: ${chat.journey_names.join(", ")}`);
+  if ((chat.journey_group_names || []).length) {
+    subParts.push(`jornadas: ${chat.journey_group_names.join(", ")}`);
   }
   row.querySelector(".list-item-sub").textContent = subParts.join(" — ");
 
@@ -808,6 +820,8 @@ function renderChatRow(chat, container) {
     }
   });
 
+  const panels = [];
+
   // ── Painel de membros (colapsado por padrão) — chats pessoais (/status)
   // não têm isso: o "membro" é sempre o próprio dono do chat, fixo.
   if (!chat.is_personal) {
@@ -852,22 +866,80 @@ function renderChatRow(chat, container) {
       }
     });
 
-    wrapper.append(row, membersPanel);
-  } else {
-    wrapper.append(row);
+    panels.push(membersPanel);
   }
 
+  // ── Painel de grupos de jornada (colapsado por padrão) — pra qualquer
+  // chat, pessoal ou não: um grupo/canal pode seguir jornadas igual uma
+  // inscrição pessoal via comando no bot, só que cadastrado direto aqui em
+  // vez de exigir alguém mandar o comando no privado (útil sobretudo pra
+  // colocar um chat novo, recém-criado, num grupo de jornada sem depender
+  // de ninguém falar com o bot).
+  const journeyGroupsPanel = document.createElement("div");
+  journeyGroupsPanel.style.display = "none";
+  journeyGroupsPanel.style.margin = "0.5rem 0 0.75rem";
+  journeyGroupsPanel.innerHTML = `
+    <div class="multi-select"></div>
+    <div class="form-actions" style="margin-top: 0.5rem;">
+      <button type="button" class="btn btn-primary save-journey-groups-btn">Salvar grupos de jornada</button>
+      <span class="journey-groups-status status-line"></span>
+    </div>
+  `;
+  const journeyGroupsSelect = journeyGroupsPanel.querySelector(".multi-select");
+  const journeyGroupsStatus = journeyGroupsPanel.querySelector(".journey-groups-status");
+
+  row.querySelector(".journey-groups-btn").addEventListener("click", () => {
+    const isOpen = journeyGroupsPanel.style.display !== "none";
+    if (isOpen) {
+      journeyGroupsPanel.style.display = "none";
+    } else {
+      const selectedCommands = journeyGroups
+        .filter((g) => (chat.journey_group_names || []).includes(g.name))
+        .map((g) => g.command);
+      populateJourneyGroupOptions(journeyGroupsSelect, journeyGroups, selectedCommands);
+      journeyGroupsPanel.style.display = "block";
+    }
+  });
+
+  journeyGroupsPanel.querySelector(".save-journey-groups-btn").addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const journeyGroupCommands = getMultiSelectValues(journeyGroupsSelect);
+    btn.disabled = true;
+    try {
+      await api("/api/chats", {
+        method: "POST",
+        body: JSON.stringify({
+          chat_id: chat.chat_id,
+          label: chat.label,
+          thread_id: chat.thread_id,
+          journey_group_commands: journeyGroupCommands,
+        }),
+      });
+      setStatus(journeyGroupsStatus, "Salvo.", false);
+      await loadChats();
+    } catch (err) {
+      setStatus(journeyGroupsStatus, err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  panels.push(journeyGroupsPanel);
+
+  wrapper.append(row, ...panels);
   container.appendChild(wrapper);
 }
 
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const memberIds = getMultiSelectValues(newChatMembers);
+  const journeyGroupCommands = getMultiSelectValues(newChatJourneyGroups);
   const data = {
     chat_id: chatForm.elements.chat_id.value.trim(),
     label: chatForm.elements.label.value.trim(),
     thread_id: chatForm.elements.thread_id.value.trim(),
     member_ids: memberIds,
+    journey_group_commands: journeyGroupCommands,
   };
   try {
     await api("/api/chats", { method: "POST", body: JSON.stringify(data) });
