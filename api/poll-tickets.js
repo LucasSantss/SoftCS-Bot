@@ -13,6 +13,29 @@ import {
 } from '../lib/ticket-scan.js';
 
 const CURSOR_KEY = 'ticket_poll_cursor';
+const BUSINESS_TIMEZONE = 'America/Sao_Paulo';
+
+// O cron externo bate em ?phase=known a cada 2min, sempre antes do timeout
+// de auto-suspend do compute Neon (5min no plano Free e não dá pra reduzir),
+// então o banco nunca chegava a suspender — ficava "ligado" 24/7 e estourava
+// a cota mensal de computação. Suporte só atende seg-sex 9h-18h e sáb
+// 9h-14h (horário de Brasília — confirmado com o usuário), então fora dessas
+// janelas o polling encerra sem tocar no banco nem na API da SoftCS, deixando
+// o compute suspender de verdade.
+function isWithinBusinessHours(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: BUSINESS_TIMEZONE,
+    weekday: 'short',
+    hour: 'numeric',
+    hour12: false,
+  }).formatToParts(date);
+  const weekday = parts.find((p) => p.type === 'weekday').value;
+  const hour = Number.parseInt(parts.find((p) => p.type === 'hour').value, 10);
+
+  if (weekday === 'Sun') return false;
+  if (weekday === 'Sat') return hour >= 9 && hour < 14;
+  return hour >= 9 && hour < 18;
+}
 
 async function getStageLabels() {
   const rows = await sql`select stage_id, label, position, is_closed_stage from stage_labels`;
@@ -165,6 +188,11 @@ export default async function handler(req, res) {
 
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'method not allowed' });
+    return;
+  }
+
+  if (!isWithinBusinessHours()) {
+    res.status(200).json({ skipped: 'fora do horário comercial' });
     return;
   }
 
