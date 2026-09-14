@@ -957,10 +957,16 @@ const journeyGroupStatus = document.getElementById("journeyGroupStatus");
 const journeyGroupList = document.getElementById("journeyGroupList");
 const journeyGroupEmpty = document.getElementById("journeyGroupEmpty");
 const newJourneyGroupJourneys = document.getElementById("newJourneyGroupJourneys");
+const newJourneyGroupJourneysWrap = document.getElementById("newJourneyGroupJourneysWrap");
+const newJourneyGroupCatchAll = document.getElementById("newJourneyGroupCatchAll");
 const journeyGroupJourneysEmpty = document.getElementById("journeyGroupJourneysEmpty");
 const journeyGroupCommandPreview = document.getElementById("journeyGroupCommandPreview");
 const autoMapJourneysBtn = document.getElementById("autoMapJourneysBtn");
 const autoMapJourneysStatus = document.getElementById("autoMapJourneysStatus");
+
+newJourneyGroupCatchAll.addEventListener("change", () => {
+  newJourneyGroupJourneysWrap.style.display = newJourneyGroupCatchAll.checked ? "none" : "block";
+});
 
 autoMapJourneysBtn.addEventListener("click", async () => {
   autoMapJourneysBtn.disabled = true;
@@ -1035,9 +1041,12 @@ function renderJourneyGroupRow(group, knownJourneyNames) {
       <button class="icon-btn" title="Remover">🗑</button>
     </div>
   `;
-  row.querySelector(".list-item-title").textContent = `${group.name}  ·  /${group.command}`;
-  row.querySelector(".list-item-sub").textContent =
-    `${group.journey_names.join(", ")} — ${group.subscriber_count} inscrito(s)`;
+  row.querySelector(".list-item-title").textContent = group.is_catch_all
+    ? `🌐 ${group.name}  ·  /${group.command}  ·  PEGA-TUDO`
+    : `${group.name}  ·  /${group.command}`;
+  row.querySelector(".list-item-sub").textContent = group.is_catch_all
+    ? `recebe todo ticket, sempre — ${group.subscriber_count} inscrito(s)`
+    : `${group.journey_names.join(", ")} — ${group.subscriber_count} inscrito(s)`;
 
   row.querySelector(".icon-btn").addEventListener("click", async () => {
     if (!confirm(`Remover o grupo "${group.name}" (/${group.command})? Quem seguia perde a inscrição.`)) return;
@@ -1069,15 +1078,19 @@ function renderJourneyGroupRow(group, knownJourneyNames) {
     if (isOpen) {
       editPanel.style.display = "none";
     } else {
-      populateJourneyOptions(editSelect, knownJourneyNames, group.journey_names);
+      if (group.is_catch_all) {
+        editSelect.innerHTML = '<p class="muted">Grupo pega-tudo — não usa jornadas, recebe tudo.</p>';
+      } else {
+        populateJourneyOptions(editSelect, knownJourneyNames, group.journey_names);
+      }
       editPanel.style.display = "block";
     }
   });
 
   editPanel.querySelector(".save-btn").addEventListener("click", async (event) => {
     const btn = event.currentTarget;
-    const journeyNames = getMultiSelectValues(editSelect);
-    if (journeyNames.length === 0) {
+    const journeyNames = group.is_catch_all ? [] : getMultiSelectValues(editSelect);
+    if (!group.is_catch_all && journeyNames.length === 0) {
       setStatus(editStatus, "Selecione pelo menos uma jornada.", true);
       return;
     }
@@ -1085,7 +1098,12 @@ function renderJourneyGroupRow(group, knownJourneyNames) {
     try {
       await api("/api/journey-groups", {
         method: "POST",
-        body: JSON.stringify({ command: group.command, name: group.name, journey_names: journeyNames }),
+        body: JSON.stringify({
+          command: group.command,
+          name: group.name,
+          journey_names: journeyNames,
+          is_catch_all: group.is_catch_all,
+        }),
       });
       setStatus(editStatus, "Salvo.", false);
       await loadJourneyGroups();
@@ -1102,15 +1120,21 @@ function renderJourneyGroupRow(group, knownJourneyNames) {
 
 journeyGroupForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const journeyNames = getMultiSelectValues(newJourneyGroupJourneys);
-  if (journeyNames.length === 0) {
+  const isCatchAll = newJourneyGroupCatchAll.checked;
+  const journeyNames = isCatchAll ? [] : getMultiSelectValues(newJourneyGroupJourneys);
+  if (!isCatchAll && journeyNames.length === 0) {
     setStatus(journeyGroupStatus, "Selecione pelo menos uma jornada.", true);
     return;
   }
-  const data = { name: journeyGroupForm.elements.name.value.trim(), journey_names: journeyNames };
+  const data = {
+    name: journeyGroupForm.elements.name.value.trim(),
+    journey_names: journeyNames,
+    is_catch_all: isCatchAll,
+  };
   try {
     await api("/api/journey-groups", { method: "POST", body: JSON.stringify(data) });
     journeyGroupForm.reset();
+    newJourneyGroupJourneysWrap.style.display = "block";
     journeyGroupCommandPreview.textContent = "";
     setStatus(journeyGroupStatus, "Adicionado.", false);
     await loadJourneyGroups();

@@ -127,7 +127,7 @@ async function handleNotifications() {
 // usado aqui pra personalizar a saudação (nome) — o cadastro em si já foi
 // exigido mais abaixo, antes de chegar em qualquer comando pessoal.
 async function handleGroupToggle({ chatId, username, command, agent }) {
-  const groupRows = await sql`select name from journey_groups where command = ${command}`;
+  const groupRows = await sql`select name, is_catch_all from journey_groups where command = ${command}`;
   const group = groupRows[0];
   if (!group) return null; // não é um comando de grupo conhecido — deixa cair pro "não reconheço"
 
@@ -146,12 +146,22 @@ async function handleGroupToggle({ chatId, username, command, agent }) {
     return `Pronto, parou de acompanhar "${escapeHtml(group.name)}". Mande /${command} de novo pra voltar.`;
   }
 
+  await sql`insert into chat_journey_groups (chat_id, command) values (${String(chatId)}, ${command})`;
+  const greeting = agent?.display_name ? `, ${escapeHtml(agent.display_name)}` : '';
+
+  if (group.is_catch_all) {
+    return (
+      `Pronto${greeting}! A partir de agora você recebe aqui, no privado, TODO ticket ` +
+      `criado/atualizado/resolvido — de qualquer cliente e qualquer criador, mesmo sem ` +
+      `jornada ou mapeamento. Mande /${command} de novo pra parar.`
+    );
+  }
+
   const journeyRows = await sql`select journey_name from journey_group_items where command = ${command} order by 1`;
   const journeyNames = journeyRows.map((r) => r.journey_name);
 
-  await sql`insert into chat_journey_groups (chat_id, command) values (${String(chatId)}, ${command})`;
   return (
-    `Pronto${agent?.display_name ? `, ${escapeHtml(agent.display_name)}` : ''}! A partir de agora você recebe ` +
+    `Pronto${greeting}! A partir de agora você recebe ` +
     `aqui, no privado, os tickets de clientes em "${escapeHtml(group.name)}" (${journeyNames.map(escapeHtml).join(', ')}) ` +
     `— de qualquer criador, não só os seus. Mande /${command} de novo pra parar.`
   );

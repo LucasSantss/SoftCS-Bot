@@ -242,7 +242,8 @@
               Junta várias jornadas sob um nome — esse nome vira um comando de verdade no bot
               (ex: "Onboarding Ativo" → <code>/onboarding_ativo</code>). Quem manda esse comando
               no privado com o bot passa a receber tickets de qualquer cliente numa dessas
-              jornadas, de qualquer criador.
+              jornadas, de qualquer criador. Ou marque "pega-tudo" abaixo pra criar um grupo sem
+              jornada nenhuma que recebe literalmente todo ticket criado/atualizado/resolvido.
             </p>
             <form id="journeyGroupForm">
               <div class="create-row">
@@ -250,14 +251,21 @@
                 <button type="submit" class="btn btn-primary">+ Adicionar</button>
               </div>
               <p class="muted" id="journeyGroupCommandPreview" style="margin-top: 0.35rem;"></p>
-              <label class="field-label" style="margin-top: 0.75rem;">
-                Jornadas desse grupo — clique nas que quiser incluir
+              <label class="field-label" style="margin-top: 0.75rem; display:flex; align-items:center; gap:0.4rem;">
+                <input type="checkbox" name="is_catch_all" id="newJourneyGroupCatchAll" />
+                Grupo pega-tudo — recebe TODO ticket criado/atualizado/resolvido, de qualquer
+                cliente e qualquer criador, mesmo sem jornada ou mapeamento de criador
               </label>
-              <div id="newJourneyGroupJourneys" class="multi-select"></div>
-              <p class="muted" id="journeyGroupJourneysEmpty" style="display:none; margin-top: 0.35rem;">
-                Nenhuma jornada vista ainda — aparecem aqui conforme a descoberta de tickets
-                (aba Tickets) for encontrando clientes com jornada ativa.
-              </p>
+              <div id="newJourneyGroupJourneysWrap">
+                <label class="field-label" style="margin-top: 0.75rem;">
+                  Jornadas desse grupo — clique nas que quiser incluir
+                </label>
+                <div id="newJourneyGroupJourneys" class="multi-select"></div>
+                <p class="muted" id="journeyGroupJourneysEmpty" style="display:none; margin-top: 0.35rem;">
+                  Nenhuma jornada vista ainda — aparecem aqui conforme a descoberta de tickets
+                  (aba Tickets) for encontrando clientes com jornada ativa.
+                </p>
+              </div>
             </form>
             <p id="journeyGroupStatus" class="status-line"></p>
           </div>

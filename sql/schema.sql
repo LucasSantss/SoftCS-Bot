@@ -206,6 +206,17 @@ create table if not exists journey_groups (
   created_at timestamptz not null default now()
 );
 
+-- Grupo "pega-tudo": quem segue um grupo com is_catch_all = true recebe
+-- TODO ticket criado/atualizado/resolvido, de qualquer cliente e qualquer
+-- criador — inclusive os que não batem com nenhum criador mapeado (chat_agents)
+-- nem com nenhuma jornada de nenhum grupo normal. Ignora journey_group_items
+-- (não precisa de nenhuma jornada selecionada). Pedido explícito do usuário
+-- em 2026-09-14: diferente do fallback "notifica todo chat cadastrado" que
+-- foi removido de propósito após um vazamento real (ver getTargetChatIds em
+-- lib/ticket-notify.js), este é opt-in por chat — só quem SEGUE esse grupo
+-- específico recebe tudo; os demais chats continuam sem fallback nenhum.
+alter table journey_groups add column if not exists is_catch_all boolean not null default false;
+
 -- Quais jornadas pertencem a cada grupo (N:N) — journey_name é o texto
 -- exatamente como aparece em ticket_state.journey_names. `on update cascade`
 -- porque renomear um grupo muda `command` (é derivado do nome — ver

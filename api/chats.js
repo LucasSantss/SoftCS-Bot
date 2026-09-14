@@ -114,7 +114,7 @@ async function handleJourneyGroups(req, res) {
   if (req.method === 'GET') {
     const groups = await sql`
       select
-        g.command, g.name, g.created_at,
+        g.command, g.name, g.created_at, g.is_catch_all,
         coalesce(
           json_agg(distinct i.journey_name) filter (where i.journey_name is not null),
           '[]'
@@ -123,7 +123,7 @@ async function handleJourneyGroups(req, res) {
       from journey_groups g
       left join journey_group_items i on i.command = g.command
       left join chat_journey_groups cg on cg.command = g.command
-      group by g.command, g.name, g.created_at
+      group by g.command, g.name, g.created_at, g.is_catch_all
       order by g.created_at desc
     `;
     // Jornadas com ticket aberto rastreado agora — alimenta o multi-select
@@ -173,9 +173,12 @@ async function handleJourneyGroups(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { command: existingCommand, name, journey_names: journeyNames } = req.body ?? {};
-    if (!name || !Array.isArray(journeyNames) || journeyNames.length === 0) {
-      res.status(400).json({ error: 'name e journey_names (pelo menos uma) são obrigatórios' });
+    const { command: existingCommand, name, journey_names: journeyNames, is_catch_all: isCatchAll } = req.body ?? {};
+    // Grupo pega-tudo não precisa de nenhuma jornada selecionada — quem
+    // segue recebe todo ticket, então journey_group_items fica vazio de
+    // propósito (ver getTargetChatIds em lib/ticket-notify.js).
+    if (!name || (!isCatchAll && (!Array.isArray(journeyNames) || journeyNames.length === 0))) {
+      res.status(400).json({ error: 'name e journey_names (pelo menos uma) são obrigatórios, a menos que is_catch_all seja true' });
       return;
     }
     const command = slugifyCommand(name);
@@ -193,16 +196,19 @@ async function handleJourneyGroups(req, res) {
         res.status(400).json({ error: `Já existe um grupo com o comando /${command} — escolha outro nome.` });
         return;
       }
-      await sql`update journey_groups set command = ${command}, name = ${name} where command = ${existingCommand}`;
+      await sql`
+        update journey_groups set command = ${command}, name = ${name}, is_catch_all = ${Boolean(isCatchAll)}
+        where command = ${existingCommand}
+      `;
     } else {
       await sql`
-        insert into journey_groups (command, name) values (${command}, ${name})
-        on conflict (command) do update set name = excluded.name
+        insert into journey_groups (command, name, is_catch_all) values (${command}, ${name}, ${Boolean(isCatchAll)})
+        on conflict (command) do update set name = excluded.name, is_catch_all = excluded.is_catch_all
       `;
     }
 
     await sql`delete from journey_group_items where command = ${command}`;
-    for (const journeyName of journeyNames) {
+    for (const journeyName of journeyNames ?? []) {
       await sql`
         insert into journey_group_items (command, journey_name) values (${command}, ${journeyName})
         on conflict do nothing

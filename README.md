@@ -469,6 +469,18 @@ outras jornadas, ou com nome próprio); só preenche o que falta. Útil pra não
 uma por uma quando a lista de jornadas é grande — depois dá pra editar cada grupo criado
 automaticamente (juntar jornadas, renomear) igual a qualquer outro.
 
+> ⚠️ **Grupo "pega-tudo" (`journey_groups.is_catch_all`)**: ao criar um grupo, marcar a opção
+> "pega-tudo" em vez de selecionar jornadas faz esse grupo receber **literalmente todo ticket
+> criado/atualizado/resolvido**, de qualquer cliente e qualquer criador — mesmo tickets sem
+> nenhuma jornada ativa e sem criador mapeado em nenhum chat (`chat_agents`). É **opt-in por
+> chat**: só quem segue especificamente esse grupo (`chat_journey_groups`) recebe tudo; os
+> demais chats/grupos cadastrados continuam sem fallback nenhum, exatamente como antes. Isso é
+> diferente (e não reintroduz) o fallback "notifica todo chat cadastrado" que foi removido de
+> propósito depois de um vazamento real (ver aviso em "Aba Chats" acima) — aqui a exceção é
+> explícita e escolhida, não implícita. Pedido explícito do usuário em 2026-09-14: "grupo em
+> jornadas que contemple todas atualizações e criações de tickets independente de quem criou o
+> ticket, sempre haverá notificação". Ver `getTargetChatIds()` em `lib/ticket-notify.js`.
+
 Cada inscrição pessoal (`telegram_chats.is_personal = true`) aparece na aba **Chats**, numa
 lista separada dos grupos/canais ("Inscrições pessoais") — mostra o nome do agente, os grupos
 de jornada que segue (se houver), permite desativar manualmente e testar o envio, igual a
@@ -685,9 +697,10 @@ sql/
                          (grupos/canais e inscrições pessoais via /status ou grupo de
                          jornada, is_personal), chat_agents (membros de cada chat,
                          roteamento por criador), journey_groups (nome + command de cada
-                         grupo da aba Jornadas), journey_group_items (quais jornadas
-                         entram em cada grupo), chat_journey_groups (quem segue cada
-                         grupo, roteamento por cliente), settings, softcs_oauth_tokens,
+                         grupo da aba Jornadas, is_catch_all pro grupo "pega-tudo" — ver
+                         aviso na seção da aba Jornadas), journey_group_items (quais
+                         jornadas entram em cada grupo), chat_journey_groups (quem segue
+                         cada grupo, roteamento por cliente), settings, softcs_oauth_tokens,
                          oauth_pkce_state, stage_labels (nome, posição e is_closed_stage
                          de cada coluna do Kanban), allowed_users (allowlist de login),
                          sessions (login do painel), google_oauth_state, ticket_state
