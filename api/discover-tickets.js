@@ -6,6 +6,7 @@ import { getSetting, setSettings } from '../lib/settings.js';
 import { extractCreator, extractStage } from '../lib/ticket-scan.js';
 import { resolveClientNames } from '../lib/client-names.js';
 import { syncTickets, getStageLabels } from '../lib/ticket-sync.js';
+import { handleExport } from '../lib/export-tickets.js';
 
 // Máximo de filterGroups por chamada em /tickets/search.
 const MAX_FILTER_GROUPS = 5;
@@ -136,6 +137,12 @@ async function handleStored(req, res) {
 }
 
 export default async function handler(req, res) {
+  // /api/export-tickets (rewrite no vercel.json): autentica pela EXPORT_API_KEY, não por sessão
+  if (req.query.action === 'export') {
+    await handleExport(req, res);
+    return;
+  }
+
   const user = await requireSession(req, res);
   if (!user) return;
 

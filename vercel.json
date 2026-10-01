@@ -1,8 +1,7 @@
 {
   "functions": {
     "api/poll-tickets.js": { "maxDuration": 60 },
-    "api/discover-tickets.js": { "maxDuration": 60 },
-    "api/export-tickets.js": { "maxDuration": 60 }
+    "api/discover-tickets.js": { "maxDuration": 60 }
   },
   "rewrites": [
     { "source": "/api/auth-start", "destination": "/api/auth?action=start" },
@@ -12,6 +11,7 @@
     { "source": "/api/users", "destination": "/api/auth?action=users" },
     { "source": "/api/oauth-start", "destination": "/api/softcs-oauth?action=start" },
     { "source": "/api/oauth-callback", "destination": "/api/softcs-oauth?action=callback" },
-    { "source": "/api/journey-groups", "destination": "/api/chats?action=groups" }
+    { "source": "/api/journey-groups", "destination": "/api/chats?action=groups" },
+    { "source": "/api/export-tickets", "destination": "/api/discover-tickets?action=export" }
   ]
 }
