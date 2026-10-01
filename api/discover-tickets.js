@@ -1,16 +1,14 @@
 import sql from '../lib/db.js';
-import { getValidAccessToken, renewTokenAtCycleEnd, searchAllTickets, getClient } from '../lib/softcs-api.js';
+import { getValidAccessToken, renewTokenAtCycleEnd, searchAllTickets } from '../lib/softcs-api.js';
 import { requireSession } from '../lib/auth.js';
 import { SEED_FLAG_KEY } from '../lib/ticket-notify.js';
 import { getSetting, setSettings } from '../lib/settings.js';
-import { TICKET_CONCURRENCY, extractCreator, extractStage, mapWithConcurrency } from '../lib/ticket-scan.js';
+import { extractCreator, extractStage } from '../lib/ticket-scan.js';
+import { resolveClientNames } from '../lib/client-names.js';
 import { syncTickets, getStageLabels } from '../lib/ticket-sync.js';
 
 // Máximo de filterGroups por chamada em /tickets/search.
 const MAX_FILTER_GROUPS = 5;
-// Quantos clientes sem nome em cache buscar por carregamento (ver
-// client_names em schema.sql) — o resto aparece nos próximos.
-const CLIENT_NAME_BATCH = 100;
 
 function buildEntry(ticket, stage, clientName) {
   return {
@@ -78,40 +76,13 @@ async function handleClosed(req, res) {
   // cliente a buscar (o lote do cache prioriza o topo da coluna).
   const closedTickets = [...byId.values()].sort((x, y) => (y.updatedAt ?? '').localeCompare(x.updatedAt ?? ''));
 
-  const clientIds = [...new Set(closedTickets.map((t) => t.mainClientId).filter(Boolean))];
-  const cached = await sql`
-    select client_id, name from client_names where client_id = any(${clientIds})
-    union all
-    select distinct on (client_id) client_id, client_name from ticket_state
-    where client_id = any(${clientIds}) and client_name is not null
-  `;
-  const nameById = new Map(cached.map((r) => [r.client_id, r.name]));
-
-  const missing = clientIds.filter((id) => !nameById.has(id)).slice(0, CLIENT_NAME_BATCH);
-  const fetched = await mapWithConcurrency(missing, TICKET_CONCURRENCY, async (clientId) => {
-    try {
-      const client = await getClient(clientId);
-      return { clientId, name: client?.name ?? null };
-    } catch (err) {
-      console.error(`Falha ao buscar cliente ${clientId}:`, err.message);
-      return null;
-    }
-  });
-  const found = fetched.filter(Boolean);
-  for (const f of found) nameById.set(f.clientId, f.name);
-  if (found.length > 0) {
-    await sql`
-      insert into client_names (client_id, name)
-      select * from unnest(${found.map((f) => f.clientId)}::text[], ${found.map((f) => f.name)}::text[])
-      on conflict (client_id) do update set name = excluded.name, updated_at = now()
-    `;
-  }
+  const { nameById, missing } = await resolveClientNames(closedTickets.map((t) => t.mainClientId));
 
   const tickets = closedTickets.map((t) => buildEntry(t, extractStage(t, stageLabels), nameById.get(t.mainClientId) ?? null));
 
   res.status(200).json({
     tickets,
-    missingClientNames: clientIds.filter((id) => !nameById.has(id)).length,
+    missingClientNames: missing,
   });
 }
 

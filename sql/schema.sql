@@ -238,7 +238,8 @@ create table if not exists chat_journey_groups (
 );
 
 -- Cache de nome de cliente, só pra exibição das colunas de encerramento no
--- Kanban (api/discover-tickets.js?source=closed). A busca de tickets não
+-- Kanban (api/discover-tickets.js?source=closed) e da exportação
+-- (api/export-tickets.js) — ver lib/client-names.js. A busca de tickets não
 -- traz o nome do cliente e listar /clients inteiro custa ~44 chamadas
 -- (~8.7 mil clientes, medido ao vivo), então cada carregamento busca só um
 -- lote dos que ainda faltam (GET /clients/{id}) e grava aqui.

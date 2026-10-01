@@ -1,7 +1,8 @@
 {
   "functions": {
     "api/poll-tickets.js": { "maxDuration": 60 },
-    "api/discover-tickets.js": { "maxDuration": 60 }
+    "api/discover-tickets.js": { "maxDuration": 60 },
+    "api/export-tickets.js": { "maxDuration": 60 }
   },
   "rewrites": [
     { "source": "/api/auth-start", "destination": "/api/auth?action=start" },
