@@ -248,3 +248,16 @@ create table if not exists client_names (
   name text,
   updated_at timestamptz not null default now()
 );
+
+-- Cópia de TODOS os tickets da conta (abertos e encerrados), mantida pelo
+-- polling (lib/ticket-snapshot.js) e lida pela exportação
+-- (/api/export-tickets, consumida pelo Metricas-CS) sem chamar a SoftCS.
+-- `data` é o ticket cru da API (descrição já em texto puro); nomes de
+-- coluna/agente/cliente são resolvidos na hora da exportação, pra renomear
+-- uma coluna ou cadastrar um agente valer na hora, sem re-sincronizar.
+create table if not exists ticket_snapshot (
+  ticket_id text primary key,
+  data jsonb not null,
+  softcs_updated_at timestamptz,
+  synced_at timestamptz not null default now()
+);

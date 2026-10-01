@@ -2,6 +2,7 @@ import { getValidAccessToken, renewTokenAtCycleEnd } from '../lib/softcs-api.js'
 import { SEED_FLAG_KEY } from '../lib/ticket-notify.js';
 import { getSetting, setSettings } from '../lib/settings.js';
 import { syncTickets } from '../lib/ticket-sync.js';
+import { refreshSnapshot } from '../lib/ticket-snapshot.js';
 
 const BUSINESS_TIMEZONE = 'America/Sao_Paulo';
 
@@ -65,11 +66,21 @@ export default async function handler(req, res) {
     const { stats } = await syncTickets({ seeding });
     if (seeding) await setSettings({ [SEED_FLAG_KEY]: 'true' });
 
+    // Cópia de todos os tickets pra exportação (Metricas-CS) — falha aqui
+    // não derruba a rodada: as notificações acima já foram feitas.
+    let snapshot;
+    try {
+      snapshot = await refreshSnapshot();
+    } catch (err) {
+      console.error('Falha ao atualizar ticket_snapshot:', err);
+      snapshot = { error: err.message };
+    }
+
     // Garante o token renovado no fim de cada finalização, sem pular
     // nenhuma — ver renewTokenAtCycleEnd em lib/softcs-api.js.
     await renewTokenAtCycleEnd();
 
-    res.status(200).json({ seeding, ...stats });
+    res.status(200).json({ seeding, ...stats, snapshot });
   } catch (error) {
     console.error('Erro no polling de tickets:', error);
     if (error.rateLimited) {
