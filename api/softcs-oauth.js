@@ -12,7 +12,7 @@ function base64url(buffer) {
 
 // Passo 1 do fluxo OAuth (Authorization Code + PKCE), acionado pelo botão
 // "Conectar" na aba Agentes. Usado só pra alimentar a busca de tickets em
-// /api/discover-tickets — o webhook não depende disso.
+// /api/discover-tickets e /api/poll-tickets — o webhook não depende disso.
 async function handleStart(req, res) {
   const user = await getSessionUser(req);
   if (!user) {

@@ -537,38 +537,11 @@ function renderKanban(tickets) {
   }
 }
 
-// ─── Busca automática (um botão só) ─────────────────────────────────────────
-// A SoftCS não tem "listar tickets de todos os clientes" e essa conta tem
-// milhares de clientes — então a gente varre em lotes de 200, e o próprio
-// navegador encadeia as chamadas sozinho (sem precisar clicar de novo) até
-// acabar ou o usuário clicar em "Parar". Cada chamada individual fica rápida
-// o bastante pra não estourar o tempo da function.
-const stopDiscoverBtn = document.getElementById("stopDiscoverBtn");
-
+// ─── Busca ao vivo ──────────────────────────────────────────────────────────
+// Uma chamada só cobre a conta inteira (POST /tickets/search na SoftCS, ver
+// lib/ticket-sync.js) — sem lotes por cliente nem loop no navegador.
 let lastCreators = [];
 let lastTickets = [];
-let stopRequested = false;
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function updateDiscoverProgress({ ticketCount, creatorCount, clientsScanned, hasNames, done, stopped, phase }) {
-  const namesNote = hasNames === false ? " (API não retornou nome/e-mail do criador — só o ID)" : "";
-  const phaseNote =
-    phase === "known"
-      ? "Reconfirmando tickets já conhecidos…"
-      : !done
-        ? "Buscando tickets novos…"
-        : stopped
-          ? "Parado."
-          : "Concluído.";
-  setStatus(
-    discoverStatus,
-    `${phaseNote} ${ticketCount} ticket(s) aberto(s) em ${clientsScanned} cliente(s) verificados, ${creatorCount} criador(es) único(s).${namesNote}`,
-    false
-  );
-}
 
 // Carrega o Kanban salvo (mantido pelo polling a cada 15min, ver
 // api/poll-tickets.js) assim que a página abre — fica disponível na hora,
@@ -595,102 +568,31 @@ async function loadStoredTickets() {
   }
 }
 
-async function runDiscoverLoop() {
+async function runDiscover() {
   discoverBtn.disabled = true;
-  stopDiscoverBtn.style.display = "inline-flex";
-  stopRequested = false;
-
-  kanbanBoard.innerHTML = "";
-  // Map por id, não array: a fase known e a descoberta padrão podem achar o
-  // mesmo ticket de novo (a descoberta não pula clientes já conhecidos) —
-  // o Map evita duplicar cartão no Kanban, a entrada mais recente vence.
-  const ticketsById = new Map();
-  const allCreatorsById = new Map();
-  let clientsScanned = 0;
-  let offset = 0;
-  let hasNames = false;
-
-  function mergeAndRender(data, phase) {
-    for (const ticket of data.tickets) ticketsById.set(ticket.id, ticket);
-    for (const creator of data.creators) {
-      if (!allCreatorsById.has(creator.id)) allCreatorsById.set(creator.id, creator);
-    }
-    if (data.clientsScanned) clientsScanned += data.clientsScanned;
-    if (data.hasNames) hasNames = true;
-
-    lastCreators = [...allCreatorsById.values()];
-    lastTickets = [...ticketsById.values()];
-    renderKanban(lastTickets);
-    renderCreators(lastCreators);
-    updateDiscoverProgress({
-      ticketCount: lastTickets.length,
-      creatorCount: lastCreators.length,
-      clientsScanned,
-      hasNames,
-      done: false,
-      phase,
-    });
-  }
+  setStatus(discoverStatus, "Buscando tickets abertos na SoftCS…", false);
 
   try {
-    // Fase 1: reconfirma ao vivo os tickets que já estão salvos (poucos
-    // clientes, rápido) — assim eles aparecem e se atualizam primeiro no
-    // Kanban, mesmo que a descoberta abaixo demore, seja interrompida ou
-    // esbarre no rate limit da SoftCS (que só afeta a descoberta, que roda
-    // depois). Mostra a mensagem ANTES de esperar a resposta — como são
-    // poucos clientes, a chamada é rápida o bastante pra passar
-    // despercebida se só atualizarmos o status depois dela voltar.
-    setStatus(discoverStatus, "Reconfirmando tickets já conhecidos…", false);
-    try {
-      const known = await api("/api/discover-tickets?phase=known");
-      mergeAndRender(known, "known");
-    } catch (err) {
-      // Não trava a busca inteira por causa disso — só segue pra descoberta.
-      setStatus(discoverStatus, `Aviso ao reconfirmar tickets conhecidos: ${err.message}`, true);
-    }
-
-    // Fase 2: descoberta ao vivo pelo resto da conta, em lotes.
-    while (!stopRequested) {
-      let data;
-      try {
-        data = await api(`/api/discover-tickets?offset=${offset}`);
-      } catch (err) {
-        if (!err.rateLimited) throw err;
-        // A SoftCS limita requisições por IP a cada poucos minutos — espera o
-        // tempo pedido e tenta o mesmo lote de novo, sem perder o progresso.
-        for (let s = err.retryAfterSeconds; s > 0 && !stopRequested; s--) {
-          setStatus(discoverStatus, `Limite da SoftCS atingido — retomando em ${s}s… (${ticketsById.size} ticket(s) até agora)`, true);
-          await sleep(1000);
-        }
-        continue;
-      }
-
-      mergeAndRender(data, "discover");
-
-      if (!data.hasMoreClients) break;
-      offset = data.nextOffset;
-    }
-
-    updateDiscoverProgress({
-      ticketCount: ticketsById.size,
-      creatorCount: lastCreators.length,
-      clientsScanned,
-      hasNames,
-      done: true,
-      stopped: stopRequested,
-    });
+    const data = await api("/api/discover-tickets");
+    lastTickets = data.tickets;
+    lastCreators = data.creators;
+    kanbanBoard.innerHTML = "";
+    renderKanban(lastTickets);
+    renderCreators(lastCreators);
+    const namesNote = data.hasNames ? "" : " (API não retornou nome/e-mail do criador — só o ID)";
+    setStatus(
+      discoverStatus,
+      `Concluído. ${lastTickets.length} ticket(s) aberto(s), ${lastCreators.length} criador(es) único(s).${namesNote}`,
+      false
+    );
   } catch (err) {
     setStatus(discoverStatus, err.message, true);
   } finally {
     discoverBtn.disabled = false;
-    stopDiscoverBtn.style.display = "none";
   }
 }
 
-discoverBtn.addEventListener("click", runDiscoverLoop);
-stopDiscoverBtn.addEventListener("click", () => {
-  stopRequested = true;
-});
+discoverBtn.addEventListener("click", runDiscover);
 
 // ─── Chats ──────────────────────────────────────────────────────────────────
 const chatForm = document.getElementById("chatForm");

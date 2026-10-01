@@ -175,20 +175,17 @@ create table if not exists ticket_state (
 
 alter table ticket_state add column if not exists priority text;
 alter table ticket_state add column if not exists client_name text;
--- client_id: precisa pra api/poll-tickets.js?phase=known re-consultar
--- diretamente o cliente de cada ticket já conhecido (fase prioritária, ver
--- nota em api/poll-tickets.js), sem depender de reencontrar o cliente numa
--- varredura completa da conta.
+-- client_id: mainClientId do ticket (usado pra buscar nome/jornada do
+-- cliente — ver lib/ticket-sync.js).
 alter table ticket_state add column if not exists client_id text;
 
 -- Nomes das jornadas (Customer Success) que o cliente dono do ticket está
 -- em cada uma — a API pública devolve isso já pronto por cliente
 -- (`GET /clients` -> `journeys[].journeyName`, sem precisar mapear ID pra
--- nome como acontece com stageId). Só populado durante a fase de
--- descoberta (api/poll-tickets.js handleDiscover / api/discover-tickets.js
--- default), que já busca a lista de clientes inteira; a fase known não tem
--- os objetos de cliente disponíveis (só o client_id), então preserva o
--- valor já salvo em vez de apagar. Usado por getTargetChatIds() em
+-- nome como acontece com stageId). Atualizado pela sincronização
+-- (lib/ticket-sync.js) quando o ticket é novo, muda de coluna ou ainda não
+-- tem nome de cliente salvo — nos outros casos preserva o valor já salvo
+-- em vez de apagar. Usado por getTargetChatIds() em
 -- lib/ticket-notify.js pra rotear notificação pros chats inscritos numa
 -- jornada (ver chat_journeys), além do roteamento por criador que já existia.
 alter table ticket_state add column if not exists journey_names text[];

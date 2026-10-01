@@ -128,7 +128,7 @@ async function handleJourneyGroups(req, res) {
     `;
     // Jornadas com ticket aberto rastreado agora — alimenta o multi-select
     // de "quais jornadas entram nesse grupo" no formulário (aba Jornadas);
-    // só existe o que a fase de descoberta já viu (ver lib/ticket-scan.js).
+    // só existe o que a sincronização já viu (ver lib/ticket-sync.js).
     const known = await sql`
       select distinct unnest(journey_names) as name from ticket_state where journey_names is not null order by 1
     `;

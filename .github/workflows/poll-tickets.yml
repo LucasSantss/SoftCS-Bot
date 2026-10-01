@@ -1,22 +1,16 @@
 name: Poll SoftCS tickets
 
 # A SoftCS não expõe webhook de ticket (ver api/webhook.js), então quem
-# descobre ticket novo (em cliente ainda não visto) é essa varredura
-# completa da conta, chamando /api/poll-tickets em lotes. Tickets JÁ
-# conhecidos são reconfirmados com mais frequência pelo workflow separado
-# poll-known.yml — este aqui só cuida de descobrir o que ainda não está em
-# ticket_state.
+# detecta ticket novo/movido/resolvido é /api/poll-tickets — uma
+# sincronização completa da conta numa chamada só (POST /tickets/search,
+# ver lib/ticket-sync.js).
 #
-# Não roda mais no `schedule:` do próprio GitHub Actions — medido ao vivo por
-# 2 dias, e o agendador do GitHub atrasa esse cron de "*/15" pra uma média
-# real de ~55-70min entre execuções (throttling do lado deles pra workflows
-# agendados, sem relação com o valor configurado), inviável pra notificação
-# em tempo hábil. Também não é Cron Job da própria Vercel porque o plano
-# Hobby só permite cron 1x/dia. Quem dispara isso periodicamente agora
-# (a cada 15min de verdade) é um cron externo (cron-job.org) chamando o
-# endpoint direto — ver README, seção "Detecção via polling".
-# `workflow_dispatch` continua aqui só pro disparo imediato ao reconectar
-# (lib/github-actions.js).
+# Não roda no `schedule:` do próprio GitHub Actions — medido ao vivo por 2
+# dias, e o agendador do GitHub atrasa crons curtos pra uma média real de
+# ~55-70min entre execuções, inviável pra notificação em tempo hábil. Quem
+# dispara isso periodicamente é um cron externo (cron-job.org) chamando o
+# endpoint direto. `workflow_dispatch` continua aqui só pro disparo imediato
+# ao reconectar (lib/github-actions.js).
 on:
   workflow_dispatch: {}
 
@@ -24,39 +18,23 @@ jobs:
   poll:
     runs-on: ubuntu-latest
     steps:
-      - name: Descobrir tickets novos em lotes até acabar a conta
+      - name: Sincronizar tickets
         env:
           POLL_URL: https://softcs-bot.vercel.app/api/poll-tickets
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -e
-          # Sem ?offset= aqui de propósito: o servidor retoma sozinho de onde
-          # a última chamada parou (cursor salvo em `settings`), então essa
-          # execução continua o progresso mesmo se a anterior tiver morrido
-          # no meio (ex: token expirado) — não reescaneia do zero toda vez.
-          while true; do
-            http_code=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
-              -H "Authorization: Bearer $CRON_SECRET" \
-              "$POLL_URL")
-            echo "HTTP $http_code:"
-            cat /tmp/resp.json
-            echo
+          http_code=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$POLL_URL")
+          echo "HTTP $http_code:"
+          cat /tmp/resp.json
+          echo
 
-            if [ "$http_code" = "429" ]; then
-              retry=$(jq -r '.retryAfterSeconds // 60' /tmp/resp.json)
-              echo "Rate limited pela SoftCS, aguardando ${retry}s..."
-              sleep "$retry"
-              continue
-            fi
-
-            if [ "$http_code" != "200" ]; then
-              echo "Erro inesperado (HTTP $http_code), abortando essa rodada — a próxima execução retoma daqui."
-              exit 1
-            fi
-
-            hasMore=$(jq -r '.hasMoreClients' /tmp/resp.json)
-            if [ "$hasMore" != "true" ]; then
-              echo "Volta completa pela conta."
-              break
-            fi
-          done
+          # Sem isso o job aparecia "sucesso" (verde) mesmo quando a chamada
+          # de dentro falhava (ex: token expirado) — o curl em si não falha,
+          # só o servidor responde com erro.
+          if [ "$http_code" != "200" ]; then
+            echo "Erro (HTTP $http_code) — marcando esse run como falho."
+            exit 1
+          fi
