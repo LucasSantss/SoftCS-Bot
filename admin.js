@@ -418,6 +418,18 @@ connectBtn.addEventListener("click", () => {
 // ─── Kanban de tickets ──────────────────────────────────────────────────────
 const kanbanBoard = document.getElementById("kanbanBoard");
 
+// Colunas cadastradas (stage_labels) — o board mostra todas, mesmo vazias,
+// igual ao Kanban da SoftCS, não só as que têm ticket.
+let stageLabels = {};
+
+async function loadStageLabels() {
+  try {
+    stageLabels = await api("/api/stage-labels");
+  } catch {
+    // Sem colunas cadastradas o board só mostra as que têm ticket.
+  }
+}
+
 function renderTicketCard(ticket) {
   const creator = ticket.createdBy;
   const card = document.createElement("div");
@@ -450,6 +462,18 @@ function renderKanban(tickets) {
   kanbanBoard.innerHTML = "";
 
   const columns = new Map();
+  for (const [id, saved] of Object.entries(stageLabels)) {
+    columns.set(id, {
+      stage: {
+        id,
+        name: saved.label,
+        color: null,
+        position: typeof saved.position === "number" ? saved.position : 999,
+        isClosedStage: saved.is_closed_stage === true,
+      },
+      tickets: [],
+    });
+  }
   for (const ticket of tickets) {
     const stage = ticket.stage ?? { id: "sem-estagio", name: "Sem estágio", position: 999, color: null };
     if (!columns.has(stage.id)) columns.set(stage.id, { stage, tickets: [] });
@@ -507,6 +531,11 @@ function renderKanban(tickets) {
         await api("/api/stage-labels", { method: "POST", body: JSON.stringify(body) });
         // Atualiza local e re-renderiza na hora — sem precisar clicar em
         // "Buscar tickets" de novo só pra ver a nova ordem/nome.
+        stageLabels[stage.id] = {
+          label: newLabel,
+          position: body.position ?? stageLabels[stage.id]?.position ?? null,
+          is_closed_stage: isClosedStage,
+        };
         for (const ticket of lastTickets) {
           if (ticket.stage.id === stage.id) {
             ticket.stage.name = newLabel;
@@ -542,49 +571,90 @@ function renderKanban(tickets) {
 // lib/ticket-sync.js) — sem lotes por cliente nem loop no navegador.
 let lastCreators = [];
 let lastTickets = [];
+let openTickets = [];
+let closedTickets = [];
+
+function renderAllTickets() {
+  const byId = new Map();
+  for (const ticket of [...openTickets, ...closedTickets]) byId.set(ticket.id, ticket);
+  lastTickets = [...byId.values()];
+  renderKanban(lastTickets);
+}
+
+// Colunas de encerramento (Resolvido, Resolvido por Inatividade…) vêm
+// direto da SoftCS, só pra exibição — ver ?source=closed em
+// api/discover-tickets.js. Carrega depois dos abertos pra não atrasar o board.
+async function loadClosedTickets() {
+  try {
+    const data = await api("/api/discover-tickets?source=closed");
+    closedTickets = data.tickets;
+    renderAllTickets();
+    return data;
+  } catch (err) {
+    setStatus(discoverStatus, `Aviso ao carregar colunas encerradas: ${err.message}`, true);
+    return null;
+  }
+}
 
 // Carrega o Kanban salvo (mantido pelo polling a cada 15min, ver
 // api/poll-tickets.js) assim que a página abre — fica disponível na hora,
 // sem precisar clicar em "Buscar tickets", e só muda quando o polling
 // realmente detectar algo novo. "Buscar tickets" continua disponível pra
 // conferir ao vivo contra a SoftCS quando quiser.
+function closedNote(closedData) {
+  if (!closedData) return "";
+  const missing = closedData.missingClientNames
+    ? ` (${closedData.missingClientNames} cliente(s) ainda sem nome em cache — completam nos próximos carregamentos)`
+    : "";
+  return ` + ${closedData.tickets.length} nas colunas de encerramento${missing}.`;
+}
+
 async function loadStoredTickets() {
+  await loadStageLabels();
   try {
     const data = await api("/api/discover-tickets?source=stored");
-    lastTickets = data.tickets;
+    openTickets = data.tickets;
     lastCreators = data.creators;
-    renderKanban(lastTickets);
+    renderAllTickets();
     if (lastCreators.length) renderCreators(lastCreators);
-    if (lastTickets.length > 0) {
+    const openNote = `${openTickets.length} ticket(s) aberto(s) — última atualização do polling automático`;
+    setStatus(discoverStatus, `${openNote}. Carregando colunas de encerramento…`, false);
+    const closedData = await loadClosedTickets();
+    if (closedData) {
       setStatus(
         discoverStatus,
-        `${lastTickets.length} ticket(s) — última atualização do polling automático. Clique em "Buscar todos os tickets abertos" pra conferir ao vivo contra a SoftCS agora.`,
+        `${openNote}${closedNote(closedData)} Clique em "Buscar todos os tickets abertos" pra conferir ao vivo contra a SoftCS agora.`,
         false
       );
     }
   } catch (err) {
     // Sem sessão SoftCS conectada ainda, ou tabela vazia (nenhum polling
     // rodou ainda) — não é erro fatal, só fica vazio até "Buscar tickets".
+    renderAllTickets();
   }
 }
 
 async function runDiscover() {
   discoverBtn.disabled = true;
-  setStatus(discoverStatus, "Buscando tickets abertos na SoftCS…", false);
+  setStatus(discoverStatus, "Buscando tickets na SoftCS…", false);
 
   try {
+    await loadStageLabels();
     const data = await api("/api/discover-tickets");
-    lastTickets = data.tickets;
+    openTickets = data.tickets;
     lastCreators = data.creators;
-    kanbanBoard.innerHTML = "";
-    renderKanban(lastTickets);
+    renderAllTickets();
     renderCreators(lastCreators);
+    setStatus(discoverStatus, `${openTickets.length} ticket(s) aberto(s). Carregando colunas de encerramento…`, false);
+    const closedData = await loadClosedTickets();
     const namesNote = data.hasNames ? "" : " (API não retornou nome/e-mail do criador — só o ID)";
-    setStatus(
-      discoverStatus,
-      `Concluído. ${lastTickets.length} ticket(s) aberto(s), ${lastCreators.length} criador(es) único(s).${namesNote}`,
-      false
-    );
+    if (closedData) {
+      setStatus(
+        discoverStatus,
+        `Concluído. ${openTickets.length} ticket(s) aberto(s)${closedNote(closedData)} ${lastCreators.length} criador(es) único(s).${namesNote}`,
+        false
+      );
+    }
   } catch (err) {
     setStatus(discoverStatus, err.message, true);
   } finally {

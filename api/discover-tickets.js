@@ -1,10 +1,29 @@
 import sql from '../lib/db.js';
-import { getValidAccessToken, renewTokenAtCycleEnd } from '../lib/softcs-api.js';
+import { getValidAccessToken, renewTokenAtCycleEnd, searchAllTickets, getClient } from '../lib/softcs-api.js';
 import { requireSession } from '../lib/auth.js';
 import { SEED_FLAG_KEY } from '../lib/ticket-notify.js';
 import { getSetting, setSettings } from '../lib/settings.js';
-import { extractCreator } from '../lib/ticket-scan.js';
-import { syncTickets } from '../lib/ticket-sync.js';
+import { TICKET_CONCURRENCY, extractCreator, extractStage, mapWithConcurrency } from '../lib/ticket-scan.js';
+import { syncTickets, getStageLabels } from '../lib/ticket-sync.js';
+
+// Máximo de filterGroups por chamada em /tickets/search.
+const MAX_FILTER_GROUPS = 5;
+// Quantos clientes sem nome em cache buscar por carregamento (ver
+// client_names em schema.sql) — o resto aparece nos próximos.
+const CLIENT_NAME_BATCH = 100;
+
+function buildEntry(ticket, stage, clientName) {
+  return {
+    id: ticket.id,
+    publicId: ticket.publicId ?? null,
+    title: ticket.title ?? '(sem título)',
+    priority: ticket.priority ?? null,
+    clientName,
+    createdAt: ticket.createdAt ?? null,
+    createdBy: extractCreator(ticket),
+    stage,
+  };
+}
 
 // Busca ao vivo ("Buscar todos os tickets abertos" na aba Tickets): a mesma
 // sincronização completa do polling automático (syncTickets em
@@ -20,18 +39,10 @@ async function handleLive(req, res) {
 
   const creatorsById = new Map();
   const tickets = open.map(({ ticket, stage, clientName }) => {
-    const creator = extractCreator(ticket);
+    const entry = buildEntry(ticket, stage, clientName);
+    const creator = entry.createdBy;
     if (creator && !creatorsById.has(creator.id)) creatorsById.set(creator.id, creator);
-    return {
-      id: ticket.id,
-      publicId: ticket.publicId ?? null,
-      title: ticket.title ?? '(sem título)',
-      priority: ticket.priority ?? null,
-      clientName,
-      createdAt: ticket.createdAt ?? null,
-      createdBy: creator,
-      stage,
-    };
+    return entry;
   });
 
   // Garante o token renovado no fim de cada finalização, sem pular nenhuma
@@ -43,6 +54,64 @@ async function handleLive(req, res) {
     creators: [...creatorsById.values()],
     hasNames: tickets.some((t) => t.createdBy?.name),
     notified: stats.notified,
+  });
+}
+
+// ?source=closed: só exibição (não grava ticket_state nem notifica) das
+// colunas de encerramento (stage_labels.is_closed_stage) e de tickets com
+// status CLOSED/CANCELLED — que a sincronização tira do Kanban de abertos
+// (ver lib/ticket-sync.js), mas o board da SoftCS continua mostrando.
+async function handleClosed(req, res) {
+  const stageLabels = await getStageLabels();
+  const groups = [
+    ...Object.keys(stageLabels)
+      .filter((id) => stageLabels[id].is_closed_stage)
+      .map((id) => ({ filters: [{ field: 'stageId', operator: 'equals', value: id }] })),
+    { filters: [{ field: 'status', operator: 'equals', value: 'CLOSED' }] },
+    { filters: [{ field: 'status', operator: 'equals', value: 'CANCELLED' }] },
+  ];
+  const chunks = [];
+  for (let i = 0; i < groups.length; i += MAX_FILTER_GROUPS) chunks.push(groups.slice(i, i + MAX_FILTER_GROUPS));
+  const pages = await Promise.all(chunks.map((filterGroups) => searchAllTickets({ filterGroups })));
+  const byId = new Map(pages.flat().map((t) => [t.id, t]));
+  // Mais recentes primeiro — tanto no board quanto na fila de nomes de
+  // cliente a buscar (o lote do cache prioriza o topo da coluna).
+  const closedTickets = [...byId.values()].sort((x, y) => (y.updatedAt ?? '').localeCompare(x.updatedAt ?? ''));
+
+  const clientIds = [...new Set(closedTickets.map((t) => t.mainClientId).filter(Boolean))];
+  const cached = await sql`
+    select client_id, name from client_names where client_id = any(${clientIds})
+    union all
+    select distinct on (client_id) client_id, client_name from ticket_state
+    where client_id = any(${clientIds}) and client_name is not null
+  `;
+  const nameById = new Map(cached.map((r) => [r.client_id, r.name]));
+
+  const missing = clientIds.filter((id) => !nameById.has(id)).slice(0, CLIENT_NAME_BATCH);
+  const fetched = await mapWithConcurrency(missing, TICKET_CONCURRENCY, async (clientId) => {
+    try {
+      const client = await getClient(clientId);
+      return { clientId, name: client?.name ?? null };
+    } catch (err) {
+      console.error(`Falha ao buscar cliente ${clientId}:`, err.message);
+      return null;
+    }
+  });
+  const found = fetched.filter(Boolean);
+  for (const f of found) nameById.set(f.clientId, f.name);
+  if (found.length > 0) {
+    await sql`
+      insert into client_names (client_id, name)
+      select * from unnest(${found.map((f) => f.clientId)}::text[], ${found.map((f) => f.name)}::text[])
+      on conflict (client_id) do update set name = excluded.name, updated_at = now()
+    `;
+  }
+
+  const tickets = closedTickets.map((t) => buildEntry(t, extractStage(t, stageLabels), nameById.get(t.mainClientId) ?? null));
+
+  res.status(200).json({
+    tickets,
+    missingClientNames: clientIds.filter((id) => !nameById.has(id)).length,
   });
 }
 
@@ -110,6 +179,16 @@ export default async function handler(req, res) {
     } catch (error) {
       console.error('Erro lendo o Kanban salvo:', error);
       res.status(500).json({ error: error.message });
+    }
+    return;
+  }
+
+  if (req.query.source === 'closed') {
+    try {
+      await handleClosed(req, res);
+    } catch (error) {
+      console.error('Erro buscando tickets encerrados na SoftCS:', error);
+      res.status(error.rateLimited ? 429 : 500).json({ error: error.message });
     }
     return;
   }
