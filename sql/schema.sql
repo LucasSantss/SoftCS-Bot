@@ -105,6 +105,13 @@ alter table stage_labels add column if not exists position integer;
 -- *agora*. Configurado manualmente ao renomear a coluna (aba Tickets).
 alter table stage_labels add column if not exists is_closed_stage boolean not null default false;
 
+-- Marca a(s) coluna(s) do Kanban que representam a fila "Aguardando
+-- Resposta" (mesma convenção de is_closed_stage: clique no nome da coluna,
+-- aba Tickets). Dá pra marcar mais de uma, se houver mais de uma fila de
+-- espera — todas entram na checagem do lembrete diário (/resposta, ver
+-- lib/awaiting-response.js).
+alter table stage_labels add column if not exists is_awaiting_response_stage boolean not null default false;
+
 -- Quais agentes pertencem a cada chat do Telegram. Usado pelo webhook pra
 -- mandar a notificação de um ticket só pro(s) chat(s) onde o criador é
 -- membro — é o único jeito da @menção realmente notificar alguém no Telegram
@@ -248,6 +255,14 @@ create table if not exists client_names (
   name text,
   updated_at timestamptz not null default now()
 );
+
+-- Inscrição pessoal no lembrete diário de tickets "Aguardando Resposta"
+-- parados (comando /resposta no privado do bot — liga/desliga, igual aos
+-- comandos de grupo de jornada — ver api/telegram-webhook.js). Independente
+-- de chat_agents/chat_journey_groups: não é sobre ticket novo ou que mudou
+-- de coluna, é um resumo diário às 09:00 só pra quem pediu (ver
+-- lib/awaiting-response.js).
+alter table telegram_chats add column if not exists awaiting_response_subscribed boolean not null default false;
 
 -- Cópia de TODOS os tickets da conta (abertos e encerrados), mantida pelo
 -- polling (lib/ticket-snapshot.js) e lida pela exportação

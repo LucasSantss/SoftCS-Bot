@@ -3,6 +3,7 @@ import { SEED_FLAG_KEY } from '../lib/ticket-notify.js';
 import { getSetting, setSettings } from '../lib/settings.js';
 import { syncTickets } from '../lib/ticket-sync.js';
 import { refreshSnapshot } from '../lib/ticket-snapshot.js';
+import { maybeSendAwaitingResponseDigest } from '../lib/awaiting-response.js';
 
 const BUSINESS_TIMEZONE = 'America/Sao_Paulo';
 
@@ -27,6 +28,17 @@ function isWithinBusinessHours(date = new Date()) {
   if (weekday === 'Sat') return hour >= 9 && hour < 14;
   return hour >= 9 && hour < 18;
 }
+
+// Hora (0-23) em horário de Brasília — só pra decidir se já é a janela do
+// lembrete diário de "Aguardando Resposta" (ver DAILY_DIGEST_HOUR abaixo).
+// Cálculo em JS puro, sem tocar banco, pra não acordar o Neon à toa nos
+// outros 23 ticks do dia que não caem nessa hora.
+function getBrasiliaHour(date) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: BUSINESS_TIMEZONE, hour: 'numeric', hour12: false }).formatToParts(date);
+  return Number.parseInt(parts.find((p) => p.type === 'hour').value, 10);
+}
+
+const DAILY_DIGEST_HOUR = 9; // horário de Brasília
 
 // Chamado periodicamente por um cron externo (cron-job.org), já que a
 // SoftCS não expõe webhook de ticket (ver api/webhook.js). Cada chamada é
@@ -54,7 +66,30 @@ export default async function handler(req, res) {
     return;
   }
 
-  if (!isWithinBusinessHours()) {
+  const now = new Date();
+
+  // Lembrete diário de "Aguardando Resposta" (/resposta no bot) — reaproveita
+  // os MESMOS crons que já existem (2min/10min, os dois caem aqui), sem
+  // precisar de uma rotina nova no cron-job.org. De propósito ANTES do
+  // bloqueio de horário comercial abaixo: roda todo dia, inclusive domingo,
+  // e não chama a SoftCS nem mexe no token — só lê ticket_snapshot, já
+  // mantido pelo polling normal. `hour === DAILY_DIGEST_HOUR` (não `>=`)
+  // limita a TENTATIVA (reivindicar o dia em `settings`, ver
+  // claimDailyDigestSlot em lib/awaiting-response.js) só à janela das 9h,
+  // pra não acordar o banco nas outras ~23h do dia fora do horário
+  // comercial — dentro da janela, o primeiro tick dos vários que caem nela
+  // manda de verdade; os seguintes veem que já foi reivindicado e não fazem
+  // nada.
+  if (getBrasiliaHour(now) === DAILY_DIGEST_HOUR) {
+    try {
+      const digest = await maybeSendAwaitingResponseDigest(now);
+      if (digest.sent) console.log('Lembrete de Aguardando Resposta enviado:', digest);
+    } catch (error) {
+      console.error('Erro no lembrete de Aguardando Resposta:', error);
+    }
+  }
+
+  if (!isWithinBusinessHours(now)) {
     res.status(200).json({ skipped: 'fora do horário comercial' });
     return;
   }

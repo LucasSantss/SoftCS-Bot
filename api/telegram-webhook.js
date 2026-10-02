@@ -51,13 +51,15 @@ async function handleStart() {
         '<b>/status</b> — tickets criados por você\n' +
         '<b>/notificacoes</b> — grupos de jornada disponíveis (tickets de clientes numa ' +
         'jornada específica, de qualquer criador)\n' +
+        '<b>/resposta</b> — lembrete diário (9h) dos tickets parados em "Aguardando Resposta" ' +
+        'há 2+ dias sem atualização\n' +
         '<b>/stop</b> — para tudo de uma vez\n\n' +
         'Mandar o mesmo comando de novo desliga — não precisa de /stop pra isso.',
       replyMarkup: inlineLinkMarkup([[{ text: '🎫 Ver tickets', url: TICKETS_BOARD_URL }]]),
     },
     {
       text: 'Pra começar:',
-      replyMarkup: keyboardMarkup([['/status'], ['/notificacoes']]),
+      replyMarkup: keyboardMarkup([['/status'], ['/notificacoes'], ['/resposta']]),
     },
   ];
 }
@@ -100,6 +102,36 @@ async function handleStop({ chatId }) {
     return 'Você não tinha notificações pessoais ativadas aqui — nada a fazer.';
   }
   return 'Pronto, não vou mais te mandar notificação de ticket aqui. Pra reativar, mande /status ou o comando de algum grupo de jornada quando quiser.';
+}
+
+// /resposta: liga/desliga (alterna, igual aos comandos de grupo de
+// jornada) o lembrete diário às 09:00 dos tickets parados em "Aguardando
+// Resposta" há 2+ dias sem atualização (ver lib/awaiting-response.js) —
+// lista fixa de assinantes, independente de ser criador ou seguir alguma
+// jornada.
+async function handleAwaitingResponseToggle({ chatId, username, agent }) {
+  const rows = await sql`
+    insert into telegram_chats (chat_id, label, active, is_personal, awaiting_response_subscribed)
+    values (${String(chatId)}, ${`@${username} (privado)`}, true, true, true)
+    on conflict (chat_id) do update set
+      active = true,
+      is_personal = true,
+      awaiting_response_subscribed = not telegram_chats.awaiting_response_subscribed
+    returning awaiting_response_subscribed
+  `;
+  const subscribed = rows[0]?.awaiting_response_subscribed ?? true;
+  const greeting = agent?.display_name ? `, ${escapeHtml(agent.display_name)}` : '';
+
+  if (!subscribed) {
+    return (
+      `Pronto${greeting}! Não vou mais te mandar o lembrete diário de "Aguardando Resposta". ` +
+      'Mande /resposta de novo pra voltar a receber.'
+    );
+  }
+  return (
+    `Pronto${greeting}! Todo dia às 09:00 você recebe aqui, no privado, a lista de tickets parados em ` +
+    '"Aguardando Resposta" há 2+ dias sem atualização. Mande /resposta de novo pra parar.'
+  );
 }
 
 async function listJourneyGroups() {
@@ -263,6 +295,9 @@ export default async function handler(req, res) {
         break;
       case 'notificacoes':
         reply = await handleNotifications();
+        break;
+      case 'resposta':
+        reply = await handleAwaitingResponseToggle({ chatId, username, agent });
         break;
       default:
         // Não é um comando fixo — só vale a pena checar se é um comando de

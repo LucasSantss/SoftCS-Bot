@@ -470,6 +470,7 @@ function renderKanban(tickets) {
         color: null,
         position: typeof saved.position === "number" ? saved.position : 999,
         isClosedStage: saved.is_closed_stage === true,
+        isAwaitingResponseStage: saved.is_awaiting_response_stage === true,
       },
       tickets: [],
     });
@@ -521,7 +522,22 @@ function renderKanban(tickets) {
           (stage.isClosedStage ? "\n\n(Hoje está marcado como SIM.)" : "\n\n(Hoje está marcado como NÃO.)")
       );
 
-      const body = { stage_id: stage.id, label: newLabel, is_closed_stage: isClosedStage };
+      // Fila monitorada pelo lembrete diário /resposta (9h) — ver
+      // lib/awaiting-response.js. Pode marcar mais de uma coluna como essa
+      // fila, se houver mais de uma.
+      const isAwaitingResponseStage = confirm(
+        "Esse estágio é a fila \"Aguardando Resposta\" (monitorada pelo lembrete diário /resposta " +
+          "às 9h, pra tickets parados aqui há 2+ dias sem atualização)?\n\n" +
+          "OK = sim.\nCancelar = não." +
+          (stage.isAwaitingResponseStage ? "\n\n(Hoje está marcado como SIM.)" : "\n\n(Hoje está marcado como NÃO.)")
+      );
+
+      const body = {
+        stage_id: stage.id,
+        label: newLabel,
+        is_closed_stage: isClosedStage,
+        is_awaiting_response_stage: isAwaitingResponseStage,
+      };
       if (newPositionRaw.trim() !== "") {
         const parsed = Number.parseInt(newPositionRaw, 10);
         if (!Number.isNaN(parsed)) body.position = parsed;
@@ -535,11 +551,13 @@ function renderKanban(tickets) {
           label: newLabel,
           position: body.position ?? stageLabels[stage.id]?.position ?? null,
           is_closed_stage: isClosedStage,
+          is_awaiting_response_stage: isAwaitingResponseStage,
         };
         for (const ticket of lastTickets) {
           if (ticket.stage.id === stage.id) {
             ticket.stage.name = newLabel;
             ticket.stage.isClosedStage = isClosedStage;
+            ticket.stage.isAwaitingResponseStage = isAwaitingResponseStage;
             if (body.position !== undefined) ticket.stage.position = body.position;
           }
         }
