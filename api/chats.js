@@ -7,6 +7,7 @@ async function handleChats(req, res) {
     const rows = await sql`
       select
         c.chat_id, c.label, c.active, c.thread_id, c.is_personal, c.created_at,
+        c.awaiting_response_subscribed,
         coalesce(
           json_agg(distinct a.softcs_user_id) filter (where a.softcs_user_id is not null),
           '[]'
@@ -26,7 +27,7 @@ async function handleChats(req, res) {
       left join agent_mapping am on am.softcs_user_id = a.softcs_user_id
       left join chat_journey_groups cg on cg.chat_id = c.chat_id
       left join journey_groups g on g.command = cg.command
-      group by c.chat_id, c.label, c.active, c.thread_id, c.is_personal, c.created_at
+      group by c.chat_id, c.label, c.active, c.thread_id, c.is_personal, c.created_at, c.awaiting_response_subscribed
       order by c.created_at desc
     `;
     res.status(200).json(rows);

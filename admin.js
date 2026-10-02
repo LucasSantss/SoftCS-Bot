@@ -692,6 +692,11 @@ const personalChatEmpty = document.getElementById("personalChatEmpty");
 const newChatMembers = document.getElementById("newChatMembers");
 const newChatJourneyGroups = document.getElementById("newChatJourneyGroups");
 
+// Pedido explícito: botão "Testar lembrete" (manda a lista real de
+// "Aguardando Resposta" na hora, sem esperar 9h) só aparece no chat pessoal
+// do Lucas Rodrigues — não é um botão geral de admin pra qualquer chat.
+const AWAITING_RESPONSE_TEST_CHAT_ID = "5212312286";
+
 // Monta o multi-select pesquisável com todos os agentes conhecidos,
 // marcando os que já pertencem ao chat (selectedIds). Usado no form "Novo
 // chat" e no painel de edição de membros de cada chat existente.
@@ -748,6 +753,7 @@ function renderChatRow(chat, container, journeyGroups) {
       ${chat.is_personal ? "" : `<button class="btn btn-secondary members-btn">Membros (${(chat.member_ids || []).length})</button>`}
       <button class="btn btn-secondary journey-groups-btn">Jornadas (${(chat.journey_group_names || []).length})</button>
       <button class="btn btn-secondary test-btn">Testar</button>
+      ${chat.chat_id === AWAITING_RESPONSE_TEST_CHAT_ID ? `<button class="btn btn-secondary test-awaiting-response-btn">Testar lembrete</button>` : ""}
       <label class="switch">
         <input type="checkbox" />
         <span class="switch-track"></span>
@@ -761,6 +767,9 @@ function renderChatRow(chat, container, journeyGroups) {
   const subParts = [chat.thread_id ? `${chat.chat_id} · tópico ${chat.thread_id}` : chat.chat_id];
   if ((chat.journey_group_names || []).length) {
     subParts.push(`jornadas: ${chat.journey_group_names.join(", ")}`);
+  }
+  if (chat.awaiting_response_subscribed) {
+    subParts.push("inscrito em /resposta");
   }
   row.querySelector(".list-item-sub").textContent = subParts.join(" — ");
 
@@ -783,6 +792,28 @@ function renderChatRow(chat, container, journeyGroups) {
       btn.disabled = false;
     }
   });
+
+  const testAwaitingResponseBtn = row.querySelector(".test-awaiting-response-btn");
+  if (testAwaitingResponseBtn) {
+    testAwaitingResponseBtn.addEventListener("click", async (event) => {
+      const btn = event.currentTarget;
+      btn.disabled = true;
+      testResult.textContent = "";
+      try {
+        await api("/api/telegram-test", {
+          method: "POST",
+          body: JSON.stringify({ chat_id: chat.chat_id, thread_id: chat.thread_id, kind: "awaiting_response" }),
+        });
+        testResult.textContent = "✓ lembrete enviado";
+        testResult.className = "test-result status-line ok";
+      } catch (err) {
+        testResult.textContent = err.message;
+        testResult.className = "test-result status-line error";
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
 
   const toggle = row.querySelector('input[type="checkbox"]');
   toggle.checked = chat.active;
