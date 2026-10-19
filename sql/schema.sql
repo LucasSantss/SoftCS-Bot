@@ -197,6 +197,14 @@ alter table ticket_state add column if not exists client_id text;
 -- jornada (ver chat_journeys), além do roteamento por criador que já existia.
 alter table ticket_state add column if not exists journey_names text[];
 
+-- CSM responsável pelo cliente dono do ticket (`GET /clients/{id}` ->
+-- `csm: { id, name }`), atualizado junto com journey_names. Só aparece na
+-- notificação mandada pros chats que recebem o ticket pelo grupo /ka (ver
+-- CSM_JOURNEY_GROUP em lib/ticket-notify.js) — @menção quando csm_id está
+-- na aba Agentes com @username, senão o nome.
+alter table ticket_state add column if not exists csm_id text;
+alter table ticket_state add column if not exists csm_name text;
+
 -- Grupo de jornadas cadastrado no painel (aba Jornadas): junta várias
 -- jornadas sob um nome só, e esse nome vira um comando de verdade no bot
 -- (ex: grupo "Onboarding Ativo" -> comando /onboarding_ativo). `command` é
