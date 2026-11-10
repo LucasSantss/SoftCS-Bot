@@ -53,20 +53,24 @@ function augmentResponse(res) {
   return res;
 }
 
-async function readJsonBody(req) {
+// Lê o corpo bruto uma vez e devolve tanto o Buffer original (pra quem
+// precisa validar assinatura HMAC sobre o texto exato, ex: api/webhook.js)
+// quanto a versão já parseada (conveniência pro resto das rotas).
+async function readBody(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
-  if (chunks.length === 0) return undefined;
-  const raw = Buffer.concat(chunks).toString('utf8');
+  const raw = Buffer.concat(chunks);
+  if (raw.length === 0) return { raw, parsed: undefined };
+  const text = raw.toString('utf8');
   const contentType = req.headers['content-type'] || '';
   if (contentType.includes('application/json')) {
     try {
-      return JSON.parse(raw);
+      return { raw, parsed: JSON.parse(text) };
     } catch {
-      return raw;
+      return { raw, parsed: text };
     }
   }
-  return raw;
+  return { raw, parsed: text };
 }
 
 const STATIC_CONTENT_TYPES = {
@@ -84,7 +88,9 @@ const server = http.createServer(async (req, res) => {
     const [modulePath, action] = route;
     req.query = Object.fromEntries(url.searchParams);
     if (action) req.query.action = action;
-    req.body = await readJsonBody(req);
+    const { raw, parsed } = await readBody(req);
+    req.rawBody = raw;
+    req.body = parsed;
     try {
       const mod = await import(modulePath);
       await mod.default(req, res);

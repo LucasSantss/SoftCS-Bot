@@ -13,12 +13,33 @@
   alter table agent_mapping alter column telegram_username drop not null;
   alter table agent_mapping add column if not exists email text;
 
-  -- Dedupe: evita reenviar a mesma mensagem no Telegram se a SoftCS reenviar o mesmo evento
-  -- (retry de webhook por timeout, por exemplo).
+  -- Todo evento recebido no webhook real da SoftCS (api/webhook.js —
+  -- `docs.softcs.com.br/docs/webhooks-de-clientes`), guardado por completo:
+  -- `event_id` (= `id` do envelope) continua sendo a chave de dedupe (evita
+  -- reprocessar reentrega por timeout — a SoftCS reenvia até 8x em ~24h se
+  -- não receber 2xx em 10s), e as colunas abaixo guardam o envelope inteiro
+  -- pra qualquer consumo futuro (relatório, auditoria, etc.) sem precisar
+  -- re-perguntar a SoftCS. `object` = snapshot do ticket/cliente no momento
+  -- do evento; `changes` = { campo: { previous, current } } (só em
+  -- client.updated/ticket.updated — outros eventos vêm sem `changes`).
   create table if not exists processed_webhook_events (
     event_id text primary key,
     received_at timestamptz not null default now()
   );
+
+  alter table processed_webhook_events add column if not exists event_type text;
+  alter table processed_webhook_events add column if not exists occurred_at timestamptz;
+  alter table processed_webhook_events add column if not exists account_id text;
+  alter table processed_webhook_events add column if not exists application_id text;
+  alter table processed_webhook_events add column if not exists source text;
+  alter table processed_webhook_events add column if not exists test boolean not null default false;
+  alter table processed_webhook_events add column if not exists object jsonb;
+  alter table processed_webhook_events add column if not exists changes jsonb;
+
+  -- Pra consultar "todo evento desse ticket" ou "toda mudança de stage" sem
+  -- varrer a tabela inteira (ex: reconstruir histórico de um ticket).
+  create index if not exists processed_webhook_events_type_idx on processed_webhook_events (event_type);
+  create index if not exists processed_webhook_events_ticket_idx on processed_webhook_events (((object ->> 'id'))) where object is not null;
 
   -- Grupos/canais do Telegram que devem receber a notificação de cada ticket novo.
   -- Também usada pra chats privados (DM) individuais — ver comando /status em
