@@ -39,9 +39,9 @@ const topbarSub = document.getElementById("topbarSub");
 
 const TAB_META = {
   tickets: { title: "Tickets", sub: "Consulta os tickets da SoftCS, agrupados pelas colunas do Kanban" },
-  agents: { title: "Agentes", sub: "Mapeamento entre usuário SoftCS e @username no Telegram" },
-  chats: { title: "Chats do Telegram", sub: "Grupos e canais que recebem a notificação de cada ticket" },
-  journeys: { title: "Jornadas", sub: "Grupos de jornada — cada um vira um comando no bot" },
+  agents: { title: "Agentes", sub: "Mapeamento entre usuário SoftCS e usuário do Slack (pra @menção)" },
+  chats: { title: "Canais do Slack", sub: "Canais que recebem a notificação de mudança de coluna e a Lista de tickets" },
+  journeys: { title: "Jornadas", sub: "Grupos de jornada (KA, Adoção, Suporte...) — cada canal escolhe quais segue" },
   access: { title: "Acesso", sub: "Quem pode entrar no painel (@chatbotmaker.io)" },
 };
 
@@ -117,7 +117,7 @@ const agentListPending = document.getElementById("agentListPending");
 const agentListPendingEmpty = document.getElementById("agentListPendingEmpty");
 const agentEmpty = document.getElementById("agentEmpty");
 
-// knownAgentIds: quem já tem @ cadastrado (é o que decide badge vs campo pra
+// knownAgentIds: quem já tem usuário do Slack ligado (é o que decide badge vs campo pra
 // preencher). agentInfoById: todo mundo importado (nome/e-mail), tenha @ ou
 // não — usado como fallback de nome quando o ticket em si não traz um.
 let knownAgentIds = new Set();
@@ -127,7 +127,7 @@ let lastAgents = [];
 async function loadAgents() {
   try {
     lastAgents = await api("/api/agents");
-    knownAgentIds = new Set(lastAgents.filter((a) => a.telegram_username).map((a) => a.softcs_user_id));
+    knownAgentIds = new Set(lastAgents.filter((a) => a.slack_user_id).map((a) => a.softcs_user_id));
     agentInfoById = new Map(lastAgents.map((a) => [a.softcs_user_id, a]));
     renderAgentLists(agentFilter.value);
     if (lastCreators.length) renderCreators(lastCreators);
@@ -143,13 +143,13 @@ function renderAgentLists(filterTerm) {
   const term = (filterTerm || "").trim().toLowerCase();
   const matches = (agent) =>
     !term ||
-    [agent.display_name, agent.email, agent.telegram_username, agent.softcs_user_id]
+    [agent.display_name, agent.email, agent.slack_user_id, agent.softcs_user_id]
       .filter(Boolean)
       .some((field) => field.toLowerCase().includes(term));
 
   const filtered = lastAgents.filter(matches);
-  const registered = filtered.filter((a) => a.telegram_username);
-  const pending = filtered.filter((a) => !a.telegram_username);
+  const registered = filtered.filter((a) => a.slack_user_id);
+  const pending = filtered.filter((a) => !a.slack_user_id);
 
   agentListRegistered.innerHTML = "";
   agentListRegisteredEmpty.style.display = registered.length ? "none" : "block";
@@ -179,32 +179,33 @@ function renderAgentRow(agent, container) {
 
   const actions = row.querySelector(".list-item-actions");
 
-  if (agent.telegram_username) {
+  if (agent.slack_user_id) {
     const badge = document.createElement("span");
     badge.className = "badge on";
-    badge.textContent = "@" + agent.telegram_username;
+    badge.textContent = "Slack ✓ " + agent.slack_user_id;
+    badge.title = agent.slack_user_id_manual ? "Preenchido à mão" : "Ligado automaticamente (e-mail/nome)";
     actions.appendChild(badge);
   } else {
     const usernameInput = document.createElement("input");
     usernameInput.type = "text";
-    usernameInput.placeholder = "@username";
-    usernameInput.style.width = "140px";
+    usernameInput.placeholder = "ID de membro (U…)";
+    usernameInput.style.width = "160px";
 
     const saveBtn = document.createElement("button");
     saveBtn.className = "btn btn-primary";
-    saveBtn.textContent = "Salvar @";
+    saveBtn.textContent = "Salvar";
     saveBtn.addEventListener("click", async () => {
-      const telegram_username = usernameInput.value.trim();
-      if (!telegram_username) {
+      const slack_user_id = usernameInput.value.trim();
+      if (!slack_user_id) {
         usernameInput.focus();
         return;
       }
       try {
         await api("/api/agents", {
           method: "POST",
-          body: JSON.stringify({ softcs_user_id: agent.softcs_user_id, telegram_username }),
+          body: JSON.stringify({ softcs_user_id: agent.softcs_user_id, slack_user_id }),
         });
-        setStatus(agentStatus, "@ salvo.", false);
+        setStatus(agentStatus, "ID do Slack salvo.", false);
         await loadAgents();
       } catch (err) {
         setStatus(agentStatus, err.message, true);
@@ -243,6 +244,27 @@ agentForm.addEventListener("submit", async (event) => {
     await loadAgents();
   } catch (err) {
     setStatus(agentStatus, err.message, true);
+  }
+});
+
+// ─── Ligar agentes a usuários do Slack (por e-mail, depois nome) ──────────
+const syncSlackUsersBtn = document.getElementById("syncSlackUsersBtn");
+const syncSlackUsersStatus = document.getElementById("syncSlackUsersStatus");
+
+syncSlackUsersBtn.addEventListener("click", async () => {
+  syncSlackUsersBtn.disabled = true;
+  setStatus(syncSlackUsersStatus, "Buscando usuários no Slack…", false);
+  try {
+    const data = await api("/api/slack", { method: "POST", body: JSON.stringify({ action: "sync-users" }) });
+    const missing = data.unmatched.length
+      ? ` Sem correspondência (preencha o ID à mão): ${data.unmatched.slice(0, 15).join(", ")}${data.unmatched.length > 15 ? "…" : ""}`
+      : "";
+    setStatus(syncSlackUsersStatus, `${data.matched} agente(s) ligado(s) ao Slack.${missing}`, false);
+    await loadAgents();
+  } catch (err) {
+    setStatus(syncSlackUsersStatus, err.message, true);
+  } finally {
+    syncSlackUsersBtn.disabled = false;
   }
 });
 
@@ -307,13 +329,13 @@ function renderCreators(creators) {
     if (mapped) {
       const badge = document.createElement("span");
       badge.className = "badge on";
-      badge.textContent = "@" + known.telegram_username;
+      badge.textContent = "Slack ✓ " + known.slack_user_id;
       actions.appendChild(badge);
     } else {
       const usernameInput = document.createElement("input");
       usernameInput.type = "text";
-      usernameInput.placeholder = "@username";
-      usernameInput.style.width = "140px";
+      usernameInput.placeholder = "ID de membro (U…)";
+      usernameInput.style.width = "160px";
       creatorInputs.set(creator.id, usernameInput);
 
       const saveBtn = document.createElement("button");
@@ -329,14 +351,14 @@ function renderCreators(creators) {
 }
 
 async function saveCreator(creator, usernameInput) {
-  const telegram_username = usernameInput.value.trim();
-  if (!telegram_username) {
+  const slack_user_id = usernameInput.value.trim();
+  if (!slack_user_id) {
     usernameInput.focus();
     return false;
   }
   await api("/api/agents", {
     method: "POST",
-    body: JSON.stringify({ softcs_user_id: creator.id, telegram_username, display_name: creator.name }),
+    body: JSON.stringify({ softcs_user_id: creator.id, slack_user_id, display_name: creator.name }),
   });
   return true;
 }
@@ -344,7 +366,7 @@ async function saveCreator(creator, usernameInput) {
 saveAllBtn.addEventListener("click", async () => {
   const pending = lastCreators.filter((c) => creatorInputs.has(c.id) && creatorInputs.get(c.id).value.trim());
   if (pending.length === 0) {
-    setStatus(creatorsStatus, "Nenhum @ preenchido pra salvar.", true);
+    setStatus(creatorsStatus, "Nenhum ID do Slack preenchido pra salvar.", true);
     return;
   }
   let saved = 0;
@@ -449,7 +471,7 @@ function renderTicketCard(ticket) {
     const known = agentInfoById.get(creator.id);
     const mapped = knownAgentIds.has(creator.id);
     const label = escapeHtml(creator.name || known?.display_name || known?.email || creator.id);
-    const badgeText = mapped ? "@" + known.telegram_username : "sem @";
+    const badgeText = mapped ? "Slack ✓" : "sem Slack";
     creatorEl.innerHTML = `<span class="badge ${mapped ? "on" : "off"}">${badgeText}</span> ${label}`;
   } else {
     creatorEl.textContent = "criador desconhecido";
@@ -522,11 +544,11 @@ function renderKanban(tickets) {
           (stage.isClosedStage ? "\n\n(Hoje está marcado como SIM.)" : "\n\n(Hoje está marcado como NÃO.)")
       );
 
-      // Fila monitorada pelo lembrete diário /resposta (9h) — ver
+      // Fila monitorada pelo lembrete diário das 9h — ver
       // lib/awaiting-response.js. Pode marcar mais de uma coluna como essa
       // fila, se houver mais de uma.
       const isAwaitingResponseStage = confirm(
-        "Esse estágio é a fila \"Aguardando Resposta\" (monitorada pelo lembrete diário /resposta " +
+        "Esse estágio é a fila \"Aguardando Resposta\" (monitorada pelo lembrete diário " +
           "às 9h, pra tickets parados aqui há 2+ dias sem atualização)?\n\n" +
           "OK = sim.\nCancelar = não." +
           (stage.isAwaitingResponseStage ? "\n\n(Hoje está marcado como SIM.)" : "\n\n(Hoje está marcado como NÃO.)")
@@ -687,15 +709,8 @@ const chatForm = document.getElementById("chatForm");
 const chatStatus = document.getElementById("chatStatus");
 const chatList = document.getElementById("chatList");
 const chatEmpty = document.getElementById("chatEmpty");
-const personalChatList = document.getElementById("personalChatList");
-const personalChatEmpty = document.getElementById("personalChatEmpty");
 const newChatMembers = document.getElementById("newChatMembers");
 const newChatJourneyGroups = document.getElementById("newChatJourneyGroups");
-
-// Pedido explícito: botão "Testar lembrete" (manda a lista real de
-// "Aguardando Resposta" na hora, sem esperar 9h) só aparece no chat pessoal
-// do Lucas Rodrigues — não é um botão geral de admin pra qualquer chat.
-const AWAITING_RESPONSE_TEST_CHAT_ID = "5212312286";
 
 // Monta o multi-select pesquisável com todos os agentes conhecidos,
 // marcando os que já pertencem ao chat (selectedIds). Usado no form "Novo
@@ -703,7 +718,7 @@ const AWAITING_RESPONSE_TEST_CHAT_ID = "5212312286";
 function populateAgentOptions(container, selectedIds) {
   const options = [...agentInfoById.values()].map((agent) => ({
     value: agent.softcs_user_id,
-    label: `${agent.display_name || agent.email || agent.softcs_user_id}${agent.telegram_username ? " (@" + agent.telegram_username + ")" : " (sem @)"}`,
+    label: `${agent.display_name || agent.email || agent.softcs_user_id}${agent.slack_user_id ? "" : " (sem Slack)"}`,
   }));
   renderMultiSelect(container, options, selectedIds);
 }
@@ -720,16 +735,9 @@ function populateJourneyGroupOptions(container, groups, selectedCommands) {
 async function loadChats() {
   try {
     const [chats, { groups }] = await Promise.all([api("/api/chats"), api("/api/journey-groups")]);
-    const groupChats = chats.filter((c) => !c.is_personal);
-    const personalChats = chats.filter((c) => c.is_personal);
-
     chatList.innerHTML = "";
-    chatEmpty.style.display = groupChats.length ? "none" : "block";
-    for (const chat of groupChats) renderChatRow(chat, chatList, groups);
-
-    personalChatList.innerHTML = "";
-    personalChatEmpty.style.display = personalChats.length ? "none" : "block";
-    for (const chat of personalChats) renderChatRow(chat, personalChatList, groups);
+    chatEmpty.style.display = chats.length ? "none" : "block";
+    for (const chat of chats) renderChatRow(chat, chatList, groups);
 
     populateAgentOptions(newChatMembers, []);
     populateJourneyGroupOptions(newChatJourneyGroups, groups, []);
@@ -750,26 +758,27 @@ function renderChatRow(chat, container, journeyGroups) {
     </div>
     <div class="list-item-actions">
       <span class="test-result status-line"></span>
-      ${chat.is_personal ? "" : `<button class="btn btn-secondary members-btn">Membros (${(chat.member_ids || []).length})</button>`}
+      <button class="btn btn-secondary members-btn">Membros (${(chat.member_ids || []).length})</button>
       <button class="btn btn-secondary journey-groups-btn">Jornadas (${(chat.journey_group_names || []).length})</button>
       <button class="btn btn-secondary test-btn">Testar</button>
-      ${chat.chat_id === AWAITING_RESPONSE_TEST_CHAT_ID ? `<button class="btn btn-secondary test-awaiting-response-btn">Testar lembrete</button>` : ""}
-      <label class="switch">
+      <label class="field-label awaiting-label" style="display:flex; align-items:center; gap:0.3rem; margin:0;" title="Lembrete diário (9h) dos tickets parados em Aguardando Resposta">
+        <input type="checkbox" class="awaiting-toggle" /> Lembrete 9h
+      </label>
+      ${chat.awaiting_response_subscribed ? `<button class="btn btn-secondary test-awaiting-response-btn">Testar lembrete</button>` : ""}
+      <label class="switch" title="Canal ativo">
         <input type="checkbox" />
         <span class="switch-track"></span>
       </label>
       <button class="icon-btn" title="Remover">🗑</button>
     </div>
   `;
-  row.querySelector(".list-item-title").textContent = chat.is_personal
-    ? chat.agent_display_name || chat.label || "(sem nome)"
-    : chat.label || "(sem rótulo)";
-  const subParts = [chat.thread_id ? `${chat.chat_id} · tópico ${chat.thread_id}` : chat.chat_id];
+  row.querySelector(".list-item-title").textContent = chat.label || "(sem rótulo)";
+  const subParts = [chat.chat_id];
   if ((chat.journey_group_names || []).length) {
     subParts.push(`jornadas: ${chat.journey_group_names.join(", ")}`);
   }
   if (chat.awaiting_response_subscribed) {
-    subParts.push("inscrito em /resposta");
+    subParts.push("recebe o lembrete das 9h");
   }
   row.querySelector(".list-item-sub").textContent = subParts.join(" — ");
 
@@ -779,9 +788,9 @@ function renderChatRow(chat, container, journeyGroups) {
     btn.disabled = true;
     testResult.textContent = "";
     try {
-      await api("/api/telegram-test", {
+      await api("/api/slack", {
         method: "POST",
-        body: JSON.stringify({ chat_id: chat.chat_id, thread_id: chat.thread_id }),
+        body: JSON.stringify({ action: "test", chat_id: chat.chat_id }),
       });
       testResult.textContent = "✓ enviada";
       testResult.className = "test-result status-line ok";
@@ -800,9 +809,9 @@ function renderChatRow(chat, container, journeyGroups) {
       btn.disabled = true;
       testResult.textContent = "";
       try {
-        await api("/api/telegram-test", {
+        await api("/api/slack", {
           method: "POST",
-          body: JSON.stringify({ chat_id: chat.chat_id, thread_id: chat.thread_id, kind: "awaiting_response" }),
+          body: JSON.stringify({ action: "test", chat_id: chat.chat_id, kind: "awaiting_response" }),
         });
         testResult.textContent = "✓ lembrete enviado";
         testResult.className = "test-result status-line ok";
@@ -815,7 +824,23 @@ function renderChatRow(chat, container, journeyGroups) {
     });
   }
 
-  const toggle = row.querySelector('input[type="checkbox"]');
+  const awaitingToggle = row.querySelector(".awaiting-toggle");
+  awaitingToggle.checked = chat.awaiting_response_subscribed;
+  awaitingToggle.addEventListener("change", async () => {
+    try {
+      await api("/api/chats", {
+        method: "PATCH",
+        body: JSON.stringify({ chat_id: chat.chat_id, awaiting_response_subscribed: awaitingToggle.checked }),
+      });
+      await loadChats();
+      setStatus(chatStatus, "Atualizado.", false);
+    } catch (err) {
+      setStatus(chatStatus, err.message, true);
+      awaitingToggle.checked = !awaitingToggle.checked;
+    }
+  });
+
+  const toggle = row.querySelector('.switch input[type="checkbox"]');
   toggle.checked = chat.active;
   toggle.addEventListener("change", async () => {
     try {
@@ -843,9 +868,9 @@ function renderChatRow(chat, container, journeyGroups) {
 
   const panels = [];
 
-  // ── Painel de membros (colapsado por padrão) — chats pessoais (/status)
-  // não têm isso: o "membro" é sempre o próprio dono do chat, fixo.
-  if (!chat.is_personal) {
+  // ── Painel de membros (colapsado por padrão) — tickets criados por esses
+  // agentes também notificam o canal.
+  {
     const membersPanel = document.createElement("div");
     membersPanel.style.display = "none";
     membersPanel.style.margin = "0.5rem 0 0.75rem";
@@ -876,7 +901,7 @@ function renderChatRow(chat, container, journeyGroups) {
       try {
         await api("/api/chats", {
           method: "POST",
-          body: JSON.stringify({ chat_id: chat.chat_id, label: chat.label, thread_id: chat.thread_id, member_ids: memberIds }),
+          body: JSON.stringify({ chat_id: chat.chat_id, label: chat.label, member_ids: memberIds }),
         });
         setStatus(membersStatus, "Salvo.", false);
         await loadChats();
@@ -890,12 +915,8 @@ function renderChatRow(chat, container, journeyGroups) {
     panels.push(membersPanel);
   }
 
-  // ── Painel de grupos de jornada (colapsado por padrão) — pra qualquer
-  // chat, pessoal ou não: um grupo/canal pode seguir jornadas igual uma
-  // inscrição pessoal via comando no bot, só que cadastrado direto aqui em
-  // vez de exigir alguém mandar o comando no privado (útil sobretudo pra
-  // colocar um chat novo, recém-criado, num grupo de jornada sem depender
-  // de ninguém falar com o bot).
+  // ── Painel de grupos de jornada (colapsado por padrão) — quais grupos
+  // (KA, Adoção, Suporte, Implantação, Todos...) esse canal segue.
   const journeyGroupsPanel = document.createElement("div");
   journeyGroupsPanel.style.display = "none";
   journeyGroupsPanel.style.margin = "0.5rem 0 0.75rem";
@@ -932,7 +953,6 @@ function renderChatRow(chat, container, journeyGroups) {
         body: JSON.stringify({
           chat_id: chat.chat_id,
           label: chat.label,
-          thread_id: chat.thread_id,
           journey_group_commands: journeyGroupCommands,
         }),
       });
@@ -958,7 +978,6 @@ chatForm.addEventListener("submit", async (event) => {
   const data = {
     chat_id: chatForm.elements.chat_id.value.trim(),
     label: chatForm.elements.label.value.trim(),
-    thread_id: chatForm.elements.thread_id.value.trim(),
     member_ids: memberIds,
     journey_group_commands: journeyGroupCommands,
   };
@@ -969,6 +988,41 @@ chatForm.addEventListener("submit", async (event) => {
     await loadChats();
   } catch (err) {
     setStatus(chatStatus, err.message, true);
+  }
+});
+
+// ─── Integração Slack (status + Lista "Rastreador de tickets") ─────────────
+const slackStatusLine = document.getElementById("slackStatusLine");
+const createSlackListBtn = document.getElementById("createSlackListBtn");
+const slackListStatus = document.getElementById("slackListStatus");
+
+async function loadSlackStatus() {
+  try {
+    const data = await api("/api/slack");
+    setStatus(
+      slackStatusLine,
+      `Conectado ao workspace "${data.team}" como @${data.botUser}. ` +
+        (data.listId ? `Lista "Rastreador de tickets" criada (${data.listId}).` : "Lista de tickets ainda não criada."),
+      false
+    );
+    createSlackListBtn.style.display = data.listId ? "none" : "";
+  } catch (err) {
+    setStatus(slackStatusLine, `Slack não conectado: ${err.message}`, true);
+  }
+}
+
+createSlackListBtn.addEventListener("click", async () => {
+  if (!confirm('Criar a Lista "Rastreador de tickets SoftCS" no Slack e liberar para os canais ativos?')) return;
+  createSlackListBtn.disabled = true;
+  setStatus(slackListStatus, "Criando…", false);
+  try {
+    const data = await api("/api/slack", { method: "POST", body: JSON.stringify({ action: "create-list" }) });
+    setStatus(slackListStatus, data.created ? `Lista criada (${data.listId}).` : `A Lista já existia (${data.listId}).`, false);
+    await loadSlackStatus();
+  } catch (err) {
+    setStatus(slackListStatus, err.message, true);
+  } finally {
+    createSlackListBtn.disabled = false;
   }
 });
 
@@ -1252,6 +1306,7 @@ async function boot() {
   await loadMe();
   await loadAgents(); // precisa terminar antes: loadChats popula o seletor de membros, e o board salvo usa agentInfoById pro nome/@ do criador
   loadChats();
+  loadSlackStatus();
   loadJourneyGroups();
   loadConnection();
   loadStoredTickets();

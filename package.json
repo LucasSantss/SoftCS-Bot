@@ -1,5 +1,5 @@
 {
-  "name": "softcs-telegram-bot",
+  "name": "softcs-slack-bot",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -7,7 +7,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "dev": "node --env-file=.env dev-server.js",
+    "dev": "node --env-file-if-exists=.env dev-server.js",
     "dev:vercel": "vercel dev"
   },
   "dependencies": {

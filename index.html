@@ -29,7 +29,7 @@
         </button>
         <button class="nav-item" data-tab="chats">
           <span class="nav-dot"></span>
-          Chats
+          Canais
         </button>
         <button class="nav-item" data-tab="journeys">
           <span class="nav-dot"></span>
@@ -113,8 +113,8 @@
             <p class="muted">
               Cole aqui o JSON (ou o texto colado direto do DevTools, com as linhas
               <code>N:{ ... }</code>) da tela de Usuários da SoftCS — importa nome e e-mail de
-              todo mundo de uma vez. O `@` do Telegram continua sendo preenchido à mão depois,
-              por pessoa, já que isso não vem em nenhum lugar da SoftCS.
+              todo mundo de uma vez. Depois use "Ligar ao Slack" abaixo pra achar cada pessoa
+              no Slack pelo e-mail (ou pelo nome) — é isso que faz a @menção funcionar.
             </p>
             <textarea id="importAgentsInput" rows="6" placeholder="Cole o payload aqui…"></textarea>
             <div class="form-actions">
@@ -124,10 +124,24 @@
           </div>
 
           <div class="card">
-            <h3>Novo agente / preencher @</h3>
+            <h3>Ligar ao Slack</h3>
+            <p class="muted">
+              Procura cada agente no Slack — primeiro pelo e-mail, depois pelo nome — e guarda o
+              usuário pra @mencionar nas mensagens. Quem não for encontrado (ou tiver nome
+              repetido) aparece em "Sem Slack" abaixo pra preencher o ID de membro à mão
+              (perfil da pessoa no Slack → ⋮ → "Copiar ID de membro").
+            </p>
+            <div class="form-actions">
+              <button type="button" id="syncSlackUsersBtn" class="btn btn-primary">Ligar agentes ao Slack</button>
+            </div>
+            <p id="syncSlackUsersStatus" class="status-line"></p>
+          </div>
+
+          <div class="card">
+            <h3>Novo agente / preencher ID do Slack</h3>
             <form id="agentForm" class="create-row">
               <input name="softcs_user_id" placeholder="ID do usuário na SoftCS" required />
-              <input name="telegram_username" placeholder="@username no Telegram" />
+              <input name="slack_user_id" placeholder="ID de membro no Slack (U…)" />
               <input name="display_name" placeholder="nome (opcional)" />
               <button type="submit" class="btn btn-primary">+ Adicionar</button>
             </form>
@@ -137,8 +151,8 @@
           <div class="card">
             <h3>Criadores encontrados</h3>
             <p class="muted">
-              Vem da última busca feita na aba Tickets. Cada linha mostra se já tem `@`
-              cadastrado ou não.
+              Vem da última busca feita na aba Tickets. Cada linha mostra se já está ligado
+              ao Slack ou não.
             </p>
             <div class="form-actions">
               <button type="button" id="saveAllBtn" class="btn btn-primary">Salvar todos preenchidos</button>
@@ -150,18 +164,18 @@
             </div>
           </div>
 
-          <input type="text" id="agentFilter" placeholder="Filtrar por nome, e-mail, @ ou ID…" />
+          <input type="text" id="agentFilter" placeholder="Filtrar por nome, e-mail ou ID…" />
 
-          <h3 style="margin: 1rem 0 0.5rem;">Com @ cadastrado</h3>
+          <h3 style="margin: 1rem 0 0.5rem;">Ligados ao Slack</h3>
           <div class="list" id="agentListRegistered"></div>
           <div class="empty-state" id="agentListRegisteredEmpty" style="display:none">
-            <p class="muted">Ninguém com @ cadastrado ainda.</p>
+            <p class="muted">Ninguém ligado ao Slack ainda.</p>
           </div>
 
-          <h3 style="margin: 1.5rem 0 0.5rem;">Sem @ cadastrado</h3>
+          <h3 style="margin: 1.5rem 0 0.5rem;">Sem Slack</h3>
           <div class="list" id="agentListPending"></div>
           <div class="empty-state" id="agentListPendingEmpty" style="display:none">
-            <p class="muted">Todo mundo já tem @ cadastrado.</p>
+            <p class="muted">Todo mundo já está ligado ao Slack.</p>
           </div>
 
           <div class="empty-state" id="agentEmpty" style="display:none">
@@ -172,51 +186,50 @@
         <!-- ─── Chats ─── -->
         <div class="tab-panel" id="tab-chats">
           <div class="card">
-            <h3>Novo chat</h3>
+            <h3>Integração Slack</h3>
+            <p id="slackStatusLine" class="status-line"></p>
+            <p class="muted">
+              A Lista "Rastreador de tickets" tem uma linha por ticket (coluna, status,
+              prioridade, cliente, pessoas e link), atualizada sozinha a cada mudança. Precisa de
+              plano pago do Slack. Crie depois de cadastrar os canais — eles ganham acesso a ela.
+            </p>
+            <div class="form-actions">
+              <button type="button" id="createSlackListBtn" class="btn btn-primary" style="display:none">Criar Lista de tickets</button>
+            </div>
+            <p id="slackListStatus" class="status-line"></p>
+          </div>
+
+          <div class="card">
+            <h3>Novo canal</h3>
             <form id="chatForm">
               <div class="create-row">
-                <input name="chat_id" placeholder="chat_id (ex: -1001234567890)" required />
-                <input name="label" placeholder="rótulo (ex: Suporte N1)" />
-                <input name="thread_id" placeholder="thread_id do tópico (opcional)" />
+                <input name="chat_id" placeholder="ID do canal no Slack (ex: C0123ABCDEF)" required />
+                <input name="label" placeholder="rótulo (ex: #softcs-ka)" />
                 <button type="submit" class="btn btn-primary">+ Adicionar</button>
               </div>
               <p class="muted" style="margin-top: 0.35rem;">
-                Deixe "thread_id" em branco pra notificar o grupo inteiro. Preencha só se
-                quiser mandar pra um Tópico específico (grupo em modo fórum) — veja no README
-                como descobrir esse número.
+                O ID fica no Slack em: clique no nome do canal → aba "Sobre" → no fim da janela.
+                Antes, adicione o bot ao canal com <code>/invite @SoftCS Bot</code>.
               </p>
               <label class="field-label" style="margin-top: 0.75rem;">
-                Membros desse chat (quem deve ser mencionado quando um ticket criado por
-                eles for atualizado) — clique nos que quiser incluir
+                Membros (opcional) — tickets criados por esses agentes também vêm pra esse
+                canal, mesmo fora das jornadas dele
               </label>
               <div id="newChatMembers" class="multi-select"></div>
               <label class="field-label" style="margin-top: 0.75rem;">
-                Grupos de jornada que esse chat deve seguir (tickets de qualquer cliente
-                numa dessas jornadas, de qualquer criador — ver aba Jornadas)
+                Grupos de jornada que esse canal segue (ex: KA, Adoção, Suporte, Implantação, ou
+                o pega-tudo "Todos") — tickets de qualquer cliente nessas jornadas
               </label>
               <div id="newChatJourneyGroups" class="multi-select"></div>
             </form>
             <p id="chatStatus" class="status-line"></p>
           </div>
 
-          <h3 style="margin: 1.25rem 0 0.5rem;">Grupos e canais</h3>
+          <h3 style="margin: 1.25rem 0 0.5rem;">Canais</h3>
           <div class="list" id="chatList"></div>
           <div class="empty-state" id="chatEmpty" style="display:none">
-            <p>Nenhum chat cadastrado ainda.</p>
-            <p class="muted">Adicione o bot ao grupo e cole o chat_id acima para começar a receber notificações.</p>
-          </div>
-
-          <h3 style="margin: 1.5rem 0 0.5rem;">Inscrições pessoais</h3>
-          <p class="muted" style="margin-bottom: 0.5rem;">
-            Agentes que falaram no privado com o bot — /status recebe os tickets criados pela
-            própria pessoa; o comando de cada grupo de jornada (aba Jornadas) recebe tickets de
-            clientes nessas jornadas, de qualquer criador. Eles mesmos controlam isso (mandando
-            o comando de novo desliga); dá pra desativar tudo de uma vez por aqui também.
-          </p>
-          <div class="list" id="personalChatList"></div>
-          <div class="empty-state" id="personalChatEmpty" style="display:none">
-            <p>Ninguém se inscreveu ainda.</p>
-            <p class="muted">Basta o agente falar no privado com o bot e mandar /status.</p>
+            <p>Nenhum canal cadastrado ainda.</p>
+            <p class="muted">Adicione o bot ao canal e cole o ID dele acima para começar a receber notificações.</p>
           </div>
         </div>
 
@@ -238,11 +251,10 @@
           <div class="card">
             <h3>Novo grupo de jornadas</h3>
             <p class="muted" style="margin-bottom: 0.5rem;">
-              Junta várias jornadas sob um nome — esse nome vira um comando de verdade no bot
-              (ex: "Onboarding Ativo" → <code>/onboarding_ativo</code>). Quem manda esse comando
-              no privado com o bot passa a receber tickets de qualquer cliente numa dessas
-              jornadas, de qualquer criador. Ou marque "pega-tudo" abaixo pra criar um grupo sem
-              jornada nenhuma que recebe literalmente todo ticket criado/atualizado/resolvido.
+              Junta várias jornadas sob um nome (ex: KA, Adoção, Suporte, Implantação). Na aba
+              Canais, cada canal do Slack escolhe quais grupos segue e recebe os tickets de
+              qualquer cliente nessas jornadas. Ou marque "pega-tudo" abaixo (ex: "Todos") pra
+              um grupo sem jornada que recebe todo ticket.
             </p>
             <form id="journeyGroupForm">
               <div class="create-row">

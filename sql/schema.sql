@@ -1,17 +1,24 @@
-  -- Mapeamento: usuário SoftCS (createdById) -> nome/e-mail (via importação em
-  -- lote de /admin.html, colando a lista de usuários) e @username do Telegram
-  -- (preenchido depois, manualmente — a SoftCS não expõe isso em lugar nenhum).
+  -- Mapeamento: usuário SoftCS (createdById/agentId/csm.id) -> nome/e-mail
+  -- (via importação em lote no painel, colando a lista de usuários) e usuário
+  -- do Slack (pra @menção — ver lib/slack-users.js).
   create table if not exists agent_mapping (
     softcs_user_id text primary key,
-    telegram_username text,
     display_name text,
     email text,
     updated_at timestamptz not null default now()
   );
 
-  -- Caso a tabela já existisse de uma versão anterior com telegram_username not null.
-  alter table agent_mapping alter column telegram_username drop not null;
   alter table agent_mapping add column if not exists email text;
+
+  -- ID de membro do Slack (U…). Preenchido pelo botão "Ligar agentes ao
+  -- Slack" (por e-mail, depois nome) ou à mão na aba Agentes —
+  -- slack_user_id_manual = true quando foi à mão, e aí a sincronização
+  -- automática não sobrescreve.
+  alter table agent_mapping add column if not exists slack_user_id text;
+  alter table agent_mapping add column if not exists slack_user_id_manual boolean not null default false;
+
+  -- Migração Telegram -> Slack (2026-11): o @username do Telegram não é mais usado.
+  alter table agent_mapping drop column if exists telegram_username;
 
   -- Todo evento recebido no webhook real da SoftCS (api/webhook.js —
   -- `docs.softcs.com.br/docs/webhooks-de-clientes`), guardado por completo:
@@ -41,28 +48,36 @@
   create index if not exists processed_webhook_events_type_idx on processed_webhook_events (event_type);
   create index if not exists processed_webhook_events_ticket_idx on processed_webhook_events (((object ->> 'id'))) where object is not null;
 
-  -- Grupos/canais do Telegram que devem receber a notificação de cada ticket novo.
-  -- Também usada pra chats privados (DM) individuais — ver comando /status em
-  -- api/telegram-webhook.js: chat_id de uma conversa privada é o mesmo que o
-  -- user id da pessoa no Telegram, então funciona igual a um chat de grupo.
-  create table if not exists telegram_chats (
+  -- Migração Telegram -> Slack (2026-11): a antiga tabela telegram_chats
+  -- vira slack_channels (as FKs de chat_agents/chat_journey_groups
+  -- acompanham o rename sozinhas). Só roda uma vez.
+  do $$
+  begin
+    if to_regclass('telegram_chats') is not null and to_regclass('slack_channels') is null then
+      alter table telegram_chats rename to slack_channels;
+    end if;
+  end $$;
+
+  -- Canais do Slack que recebem as notificações (aba Canais do painel).
+  -- chat_id = ID do canal no Slack (C…). Não há mais DM: só canais (ex: KA,
+  -- Adoção, Suporte, Implantação, Todos), cada um seguindo seus grupos de
+  -- jornada (chat_journey_groups).
+  create table if not exists slack_channels (
     chat_id text primary key,
     label text,
     active boolean not null default true,
     created_at timestamptz not null default now()
   );
 
-  -- thread_id de um Tópico específico dentro de um grupo em modo fórum (ver
-  -- seção "Tópicos" do Telegram) — quando preenchido, a notificação vai só
-  -- pra esse tópico (Bot API: message_thread_id), não pro grupo inteiro.
-  -- Descoberto manualmente (ver README) porque a API do Telegram não lista
-  -- tópicos existentes, só devolve o id quando alguém posta neles.
-  alter table telegram_chats add column if not exists thread_id text;
+  -- Tópico do Telegram e marca de DM pessoal não existem no Slack.
+  alter table slack_channels drop column if exists thread_id;
+  alter table slack_channels drop column if exists is_personal;
 
-  -- true só pra chats criados pelo comando /status (DM pessoal de um agente
-  -- com o bot — ver api/telegram-webhook.js), pra diferenciar visualmente na
-  -- aba Chats de um grupo/canal cadastrado à mão. Nunca marcado manualmente.
-  alter table telegram_chats add column if not exists is_personal boolean not null default false;
+  -- Chats que vieram do Telegram (ID numérico, ex: -1001234567890) não
+  -- funcionam no Slack — sai junto o vínculo deles com membros e grupos de
+  -- jornada (on delete cascade). Cadastre os canais do Slack de novo na aba
+  -- Canais.
+  delete from slack_channels where chat_id ~ '^-?[0-9]+$';
 
   -- Credenciais da aplicação OAuth2 da SoftCS, usadas pela busca "Buscar tickets".
   create table if not exists settings (
@@ -133,12 +148,10 @@
   -- lib/awaiting-response.js).
   alter table stage_labels add column if not exists is_awaiting_response_stage boolean not null default false;
 
-  -- Quais agentes pertencem a cada chat do Telegram. Usado pelo webhook pra
-  -- mandar a notificação de um ticket só pro(s) chat(s) onde o criador é
-  -- membro — é o único jeito da @menção realmente notificar alguém no Telegram
-  -- (só funciona se a pessoa estiver no grupo).
+  -- Agentes ligados a cada canal: ticket criado por um deles também
+  -- notifica o canal, além do roteamento por grupo de jornada.
   create table if not exists chat_agents (
-    chat_id text not null references telegram_chats (chat_id) on delete cascade,
+    chat_id text not null references slack_channels (chat_id) on delete cascade,
     softcs_user_id text not null references agent_mapping (softcs_user_id) on delete cascade,
     primary key (chat_id, softcs_user_id)
   );
@@ -227,12 +240,10 @@
   alter table ticket_state add column if not exists csm_name text;
 
   -- Grupo de jornadas cadastrado no painel (aba Jornadas): junta várias
-  -- jornadas sob um nome só, e esse nome vira um comando de verdade no bot
-  -- (ex: grupo "Onboarding Ativo" -> comando /onboarding_ativo). `command` é
-  -- o slug gerado a partir de `name` (minúsculo, sem acento, só
-  -- [a-z0-9_] — ver slugifyCommand() em lib/journey-groups.js) e é a chave
-  -- primária porque É o texto que a pessoa digita/toca no Telegram; não faz
-  -- sentido dois grupos colidirem no mesmo comando.
+  -- jornadas sob um nome só (ex: KA, Adoção, Suporte, Implantação). `command`
+  -- é o slug gerado a partir de `name` (minúsculo, sem acento, só
+  -- [a-z0-9_] — ver slugifyCommand() em lib/journey-groups.js); o nome da
+  -- coluna vem da época do Telegram, em que isso virava um comando do bot.
   create table if not exists journey_groups (
     command text primary key,
     name text not null,
@@ -261,14 +272,12 @@
     primary key (command, journey_name)
   );
 
-  -- Inscrição de um chat (DM pessoal — a pessoa toca/digita o comando do
-  -- grupo no bot) num grupo de jornadas: todo ticket cujo cliente esteja em
-  -- QUALQUER jornada do grupo notifica esse chat, além do roteamento por
-  -- criador que já existia (chat_agents). Ver getTargetChatIds() em
-  -- lib/ticket-notify.js e o handler de comando dinâmico em
-  -- api/telegram-webhook.js.
+  -- Grupos de jornada que cada canal segue (aba Canais): todo ticket cujo
+  -- cliente esteja em QUALQUER jornada do grupo notifica esse canal, além do
+  -- roteamento por criador (chat_agents). Ver getTargetChannels() em
+  -- lib/ticket-notify.js.
   create table if not exists chat_journey_groups (
-    chat_id text not null references telegram_chats (chat_id) on delete cascade,
+    chat_id text not null references slack_channels (chat_id) on delete cascade,
     command text not null references journey_groups (command) on delete cascade on update cascade,
     primary key (chat_id, command)
   );
@@ -296,13 +305,33 @@
   alter table client_names add column if not exists csm_name text;
   alter table client_names add column if not exists info_updated_at timestamptz;
 
-  -- Inscrição pessoal no lembrete diário de tickets "Aguardando Resposta"
-  -- parados (comando /resposta no privado do bot — liga/desliga, igual aos
-  -- comandos de grupo de jornada — ver api/telegram-webhook.js). Independente
-  -- de chat_agents/chat_journey_groups: não é sobre ticket novo ou que mudou
-  -- de coluna, é um resumo diário às 09:00 só pra quem pediu (ver
+  -- Canal que recebe o lembrete diário (09:00) dos tickets parados em
+  -- "Aguardando Resposta" (checkbox "Lembrete 9h" na aba Canais).
+  -- Independente de chat_agents/chat_journey_groups (ver
   -- lib/awaiting-response.js).
-  alter table telegram_chats add column if not exists awaiting_response_subscribed boolean not null default false;
+  alter table slack_channels add column if not exists awaiting_response_subscribed boolean not null default false;
+
+  -- Mensagem-mãe de cada ticket em cada canal do Slack: a primeira mudança
+  -- de coluna cria a mensagem; as seguintes editam ela (chat.update) e
+  -- respondem na thread (message_ts) — uma mensagem por ticket no canal.
+  -- Ver sendToChannel em lib/ticket-notify.js.
+  create table if not exists slack_ticket_messages (
+    ticket_id text not null,
+    channel_id text not null,
+    message_ts text not null,
+    created_at timestamptz not null default now(),
+    primary key (ticket_id, channel_id)
+  );
+
+  -- Linha de cada ticket na Lista "Rastreador de tickets" do Slack (ID da
+  -- Lista e das colunas fica em settings, chave slack_tracker_list).
+  -- row_id null = criação reservada/em andamento (ver claimRowCreation em
+  -- lib/slack-list.js).
+  create table if not exists slack_list_rows (
+    ticket_id text primary key,
+    row_id text,
+    claimed_at timestamptz not null default now()
+  );
 
   -- Cópia de TODOS os tickets da conta (abertos e encerrados), mantida pelo
   -- polling (lib/ticket-snapshot.js) e lida pela exportação

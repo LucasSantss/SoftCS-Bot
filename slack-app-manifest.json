@@ -1,0 +1,30 @@
+{
+  "display_information": {
+    "name": "SoftCS Bot",
+    "description": "Avisa nos canais quando um ticket da SoftCS muda de coluna e mantém a Lista de tickets atualizada.",
+    "background_color": "#1d4ed8"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "SoftCS Bot",
+      "always_online": true
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "chat:write.public",
+        "users:read",
+        "users:read.email",
+        "lists:read",
+        "lists:write"
+      ]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

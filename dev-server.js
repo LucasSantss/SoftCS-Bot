@@ -8,6 +8,56 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 
+// Confere o .env antes de subir, com mensagem clara em vez de um erro 500
+// na primeira requisição.
+if (!process.env.DATABASE_URL) {
+  console.error(
+    '\n✗ DATABASE_URL não configurada.\n' +
+      '  Copie .env.example para .env e preencha (seção "Dev local" no fim do arquivo).\n'
+  );
+  process.exit(1);
+}
+// Proteção: o dev local roda numa BRANCH do Neon, nunca na produção — a
+// migração do Slack (sql/schema.sql) quebraria a versão que está no ar.
+if (process.env.SOFTCS_TOKEN_DATABASE_URL && process.env.SOFTCS_TOKEN_DATABASE_URL === process.env.DATABASE_URL) {
+  console.error(
+    '\n✗ DATABASE_URL é igual a SOFTCS_TOKEN_DATABASE_URL (produção).\n' +
+      '  Use em DATABASE_URL a connection string da branch do Neon criada pra teste.\n'
+  );
+  process.exit(1);
+}
+for (const [name, hint] of [
+  ['SLACK_BOT_TOKEN', 'mensagens e Lista do Slack não vão funcionar'],
+  ['SOFTCS_TOKEN_DATABASE_URL', '"Buscar tickets" vai usar (e RENOVAR) o token da SoftCS da branch — isso invalida o token da produção'],
+  ['DEV_LOGIN_EMAIL', 'o login vai pelo Google, que precisa ter http://localhost:' + PORT + '/api/auth-callback cadastrado'],
+]) {
+  if (!process.env[name]) console.warn(`⚠ ${name} não configurada — ${hint}.`);
+}
+
+// Login local sem Google: cria uma sessão pro DEV_LOGIN_EMAIL (precisa ser o
+// master ou estar na aba Acesso) e volta pro painel. Só existe aqui no
+// dev-server (a Vercel nunca roda este arquivo) e só aceita requisição da
+// própria máquina.
+async function handleDevLogin(req, res) {
+  const email = process.env.DEV_LOGIN_EMAIL;
+  const remote = req.socket.remoteAddress ?? '';
+  if (!email || !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote)) {
+    res.statusCode = 404;
+    res.end('not found');
+    return;
+  }
+  const { createSession, setSessionCookie, isEmailAllowed } = await import('./lib/auth.js');
+  if (!(await isEmailAllowed(email))) {
+    res.statusCode = 403;
+    res.end(`${email} não tem acesso ao painel (aba Acesso).`);
+    return;
+  }
+  const { token, expiresAt } = await createSession(email);
+  setSessionCookie(res, token, expiresAt);
+  res.writeHead(302, { Location: '/' });
+  res.end();
+}
+
 // Alguns caminhos aqui viram a mesma function em produção (vercel.json faz o
 // rewrite pra /api/auth?action=... e /api/softcs-oauth?action=...) — o
 // segundo elemento simula isso localmente, injetando `action` em req.query
@@ -21,8 +71,7 @@ const routes = {
   '/api/discover-tickets': ['./api/discover-tickets.js'],
   '/api/poll-tickets': ['./api/poll-tickets.js'],
   '/api/export-tickets': ['./api/discover-tickets.js', 'export'],
-  '/api/telegram-test': ['./api/telegram-test.js'],
-  '/api/telegram-webhook': ['./api/telegram-webhook.js'],
+  '/api/slack': ['./api/slack.js'],
   '/api/stage-labels': ['./api/stage-labels.js'],
   '/api/import-agents': ['./api/import-agents.js'],
   '/api/oauth-start': ['./api/softcs-oauth.js', 'start'],
@@ -83,6 +132,16 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   augmentResponse(res);
 
+  if (url.pathname === '/api/dev-login') {
+    try {
+      await handleDevLogin(req, res);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'internal error', message: err.message });
+    }
+    return;
+  }
+
   const route = routes[url.pathname];
   if (route) {
     const [modulePath, action] = route;
@@ -103,7 +162,7 @@ const server = http.createServer(async (req, res) => {
 
   // Reflete o middleware.js de produção: sem cookie de sessão, `/` manda pro login.
   if (url.pathname === '/' && !/(?:^|;\s*)softcs_session=/.test(req.headers.cookie || '')) {
-    res.writeHead(302, { Location: '/login.html' });
+    res.writeHead(302, { Location: process.env.DEV_LOGIN_EMAIL ? '/api/dev-login' : '/login.html' });
     res.end();
     return;
   }

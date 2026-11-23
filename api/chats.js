@@ -1,33 +1,31 @@
 import sql from '../lib/db.js';
 import { requireSession } from '../lib/auth.js';
 import { slugifyCommand } from '../lib/journey-groups.js';
+import { grantChannelAccess } from '../lib/slack-list.js';
 
+// Canais do Slack que recebem notificação (aba Chats). `chat_id` = ID do
+// canal no Slack (C… — em "Ver detalhes do canal", no fim da aba "Sobre").
+// O bot precisa estar no canal (/invite @SoftCS Bot) pra conseguir postar.
 async function handleChats(req, res) {
   if (req.method === 'GET') {
     const rows = await sql`
       select
-        c.chat_id, c.label, c.active, c.thread_id, c.is_personal, c.created_at,
-        c.awaiting_response_subscribed,
+        c.chat_id, c.label, c.active, c.created_at, c.awaiting_response_subscribed,
         coalesce(
           json_agg(distinct a.softcs_user_id) filter (where a.softcs_user_id is not null),
           '[]'
         ) as member_ids,
-        -- só populado quando is_personal (uma inscrição via /status sempre tem
-        -- exatamente um membro, o próprio dono do chat) — nome pra exibir na UI
-        -- em vez do chat_id cru, ver aba Chats.
-        max(am.display_name) filter (where c.is_personal) as agent_display_name,
-        -- grupos de jornada seguidos (aba Jornadas / comando dinâmico no bot)
-        -- — distinto de member_ids/chat_agents (roteamento por criador).
+        -- grupos de jornada seguidos (KA, Adoção, Suporte, Implantação,
+        -- Todos...) — distinto de member_ids/chat_agents (roteamento por criador).
         coalesce(
           json_agg(distinct g.name) filter (where g.name is not null),
           '[]'
         ) as journey_group_names
-      from telegram_chats c
+      from slack_channels c
       left join chat_agents a on a.chat_id = c.chat_id
-      left join agent_mapping am on am.softcs_user_id = a.softcs_user_id
       left join chat_journey_groups cg on cg.chat_id = c.chat_id
       left join journey_groups g on g.command = cg.command
-      group by c.chat_id, c.label, c.active, c.thread_id, c.is_personal, c.created_at, c.awaiting_response_subscribed
+      group by c.chat_id, c.label, c.active, c.created_at, c.awaiting_response_subscribed
       order by c.created_at desc
     `;
     res.status(200).json(rows);
@@ -35,42 +33,50 @@ async function handleChats(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { chat_id, label, member_ids, thread_id, journey_group_commands } = req.body ?? {};
-    if (!chat_id) {
-      res.status(400).json({ error: 'chat_id é obrigatório' });
+    const { chat_id, label, member_ids, journey_group_commands } = req.body ?? {};
+    const channelId = String(chat_id ?? '').trim().toUpperCase();
+    if (!/^[CG][A-Z0-9]{6,}$/.test(channelId)) {
+      res.status(400).json({ error: 'Informe o ID do canal do Slack (começa com C, ex: C0123ABCDEF)' });
       return;
     }
 
-    await sql`
-      insert into telegram_chats (chat_id, label, active, thread_id)
-      values (${String(chat_id)}, ${label || null}, true, ${thread_id ? String(thread_id) : null})
-      on conflict (chat_id) do update set label = excluded.label, active = true, thread_id = excluded.thread_id
+    const inserted = await sql`
+      insert into slack_channels (chat_id, label, active)
+      values (${channelId}, ${label || null}, true)
+      on conflict (chat_id) do update set label = excluded.label, active = true
+      returning (xmax = 0) as is_new
     `;
 
+    // Canal novo ganha acesso de edição à Lista "Rastreador de tickets", se
+    // ela já existir — falha aqui não impede o cadastro do canal.
+    if (inserted[0]?.is_new) {
+      try {
+        await grantChannelAccess([channelId]);
+      } catch (err) {
+        console.error(`Falha ao liberar a Lista pro canal ${channelId}:`, err.message);
+      }
+    }
+
     if (Array.isArray(member_ids)) {
-      await sql`delete from chat_agents where chat_id = ${String(chat_id)}`;
+      await sql`delete from chat_agents where chat_id = ${channelId}`;
       for (const softcsUserId of member_ids) {
         await sql`
           insert into chat_agents (chat_id, softcs_user_id)
-          values (${String(chat_id)}, ${softcsUserId})
+          values (${channelId}, ${softcsUserId})
           on conflict do nothing
         `;
       }
     }
 
-    // Grupos de jornada que esse chat segue — mesma tabela que o comando
-    // dinâmico do bot usa (chat_journey_groups, ver handleGroupToggle em
-    // api/telegram-webhook.js), só que aqui é o admin escolhendo direto no
-    // painel em vez de exigir que alguém mande o comando no privado. Só
-    // mexe quando o campo vem no body (igual member_ids acima) — salvar só
-    // os membros não deve apagar os grupos de jornada já escolhidos, e
-    // vice-versa (painéis independentes na aba Chats).
+    // Grupos de jornada que esse canal segue (chat_journey_groups). Só mexe
+    // quando o campo vem no body (igual member_ids acima) — salvar só os
+    // membros não deve apagar os grupos já escolhidos, e vice-versa.
     if (Array.isArray(journey_group_commands)) {
-      await sql`delete from chat_journey_groups where chat_id = ${String(chat_id)}`;
+      await sql`delete from chat_journey_groups where chat_id = ${channelId}`;
       for (const command of journey_group_commands) {
         await sql`
           insert into chat_journey_groups (chat_id, command)
-          values (${String(chat_id)}, ${command})
+          values (${channelId}, ${command})
           on conflict do nothing
         `;
       }
@@ -80,13 +86,20 @@ async function handleChats(req, res) {
     return;
   }
 
+  // Liga/desliga o canal (`active`) e/ou o lembrete diário de "Aguardando
+  // Resposta" (`awaiting_response_subscribed`).
   if (req.method === 'PATCH') {
-    const { chat_id, active } = req.body ?? {};
-    if (!chat_id || typeof active !== 'boolean') {
-      res.status(400).json({ error: 'chat_id e active são obrigatórios' });
+    const { chat_id, active, awaiting_response_subscribed: awaiting } = req.body ?? {};
+    if (!chat_id || (typeof active !== 'boolean' && typeof awaiting !== 'boolean')) {
+      res.status(400).json({ error: 'chat_id e active (ou awaiting_response_subscribed) são obrigatórios' });
       return;
     }
-    await sql`update telegram_chats set active = ${active} where chat_id = ${String(chat_id)}`;
+    if (typeof active === 'boolean') {
+      await sql`update slack_channels set active = ${active} where chat_id = ${String(chat_id)}`;
+    }
+    if (typeof awaiting === 'boolean') {
+      await sql`update slack_channels set awaiting_response_subscribed = ${awaiting} where chat_id = ${String(chat_id)}`;
+    }
     res.status(200).json({ ok: true });
     return;
   }
@@ -97,7 +110,7 @@ async function handleChats(req, res) {
       res.status(400).json({ error: 'chat_id é obrigatório' });
       return;
     }
-    await sql`delete from telegram_chats where chat_id = ${chatId}`;
+    await sql`delete from slack_channels where chat_id = ${chatId}`;
     res.status(200).json({ ok: true });
     return;
   }
@@ -106,8 +119,8 @@ async function handleChats(req, res) {
 }
 
 // CRUD dos grupos de jornada (aba Jornadas) — junta várias jornadas sob um
-// nome, e esse nome vira um comando de verdade no bot (/{command}, ver
-// api/telegram-webhook.js). Consolidado aqui (via ?action=groups, reescrito
+// nome (ex: KA, Adoção, Suporte, Implantação); cada canal do Slack escolhe
+// quais grupos segue na aba Chats. Consolidado aqui (via ?action=groups, reescrito
 // de /api/journey-groups pelo vercel.json) em vez de um arquivo próprio
 // porque o projeto já está no limite de 12 Serverless Functions do plano
 // Hobby da Vercel — ver README.
@@ -177,7 +190,7 @@ async function handleJourneyGroups(req, res) {
     const { command: existingCommand, name, journey_names: journeyNames, is_catch_all: isCatchAll } = req.body ?? {};
     // Grupo pega-tudo não precisa de nenhuma jornada selecionada — quem
     // segue recebe todo ticket, então journey_group_items fica vazio de
-    // propósito (ver getTargetChatIds em lib/ticket-notify.js).
+    // propósito (ver getTargetChannels em lib/ticket-notify.js).
     if (!name || (!isCatchAll && (!Array.isArray(journeyNames) || journeyNames.length === 0))) {
       res.status(400).json({ error: 'name e journey_names (pelo menos uma) são obrigatórios, a menos que is_catch_all seja true' });
       return;
