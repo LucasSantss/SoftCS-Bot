@@ -1,3 +1,4 @@
+import sql from '../lib/db.js';
 import { requireSession } from '../lib/auth.js';
 import { slackApi, postMessage } from '../lib/slack.js';
 import { isWebhookTarget, postWorkflowWebhook } from '../lib/slack-webhook.js';
@@ -46,6 +47,11 @@ export default async function handler(req, res) {
         return;
       }
       if (isWebhookTarget(chat_id)) {
+        // Colunas Pessoa precisam de um ID real: usa até 3 agentes que já têm
+        // ID do Slack na aba Agentes (vazio se nenhum tiver).
+        const ids = (
+          await sql`select slack_user_id from agent_mapping where slack_user_id is not null order by display_name limit 3`
+        ).map((r) => r.slack_user_id);
         await postWorkflowWebhook(chat_id, {
           evento: 'Teste',
           ticket: 'Ticket de teste do SoftCS Bot',
@@ -60,6 +66,9 @@ export default async function handler(req, res) {
           mencoes: '',
           link: 'https://admin.softcs.com.br/pt-br/tickets',
           ticket_id: '0',
+          criado_por_id: ids[0] ?? '',
+          responsavel_id: ids[1] ?? ids[0] ?? '',
+          csm_id: ids[2] ?? ids[0] ?? '',
         });
       } else if (kind === 'awaiting_response') {
         const { tickets } = await getOverdueAwaitingResponseTickets();
