@@ -1,5 +1,6 @@
 import { requireSession } from '../lib/auth.js';
 import { slackApi, postMessage } from '../lib/slack.js';
+import { isWebhookTarget, postWorkflowWebhook } from '../lib/slack-webhook.js';
 import { syncSlackUsers } from '../lib/slack-users.js';
 import { createTrackerList, getTrackerList } from '../lib/slack-list.js';
 import { getOverdueAwaitingResponseTickets, buildAwaitingResponseMessages } from '../lib/awaiting-response.js';
@@ -21,6 +22,11 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
+      // Sem token = só modo fluxo de trabalho (webhook), sem bot.
+      if (!process.env.SLACK_BOT_TOKEN) {
+        res.status(200).json({ ok: true, mode: 'webhook' });
+        return;
+      }
       const auth = await slackApi('auth.test');
       const list = await getTrackerList();
       res.status(200).json({ ok: true, team: auth.team, botUser: auth.user, listId: list?.listId ?? null });
@@ -39,7 +45,23 @@ export default async function handler(req, res) {
         res.status(400).json({ error: 'chat_id é obrigatório' });
         return;
       }
-      if (kind === 'awaiting_response') {
+      if (isWebhookTarget(chat_id)) {
+        await postWorkflowWebhook(chat_id, {
+          evento: 'Teste',
+          ticket: 'Ticket de teste do SoftCS Bot',
+          coluna: 'Em análise',
+          coluna_anterior: 'Novo',
+          prioridade: 'P2',
+          cliente: 'Cliente de teste',
+          jornada: 'Jornada de teste',
+          criado_por: 'Fulano',
+          responsavel: 'Ciclano',
+          csm: 'Beltrano',
+          mencoes: '',
+          link: 'https://admin.softcs.com.br/pt-br/tickets',
+          ticket_id: '0',
+        });
+      } else if (kind === 'awaiting_response') {
         const { tickets } = await getOverdueAwaitingResponseTickets();
         for (const text of buildAwaitingResponseMessages(tickets)) await postMessage({ channel: chat_id, text });
       } else {

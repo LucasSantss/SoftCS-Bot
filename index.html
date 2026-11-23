@@ -203,13 +203,14 @@
             <h3>Novo canal</h3>
             <form id="chatForm">
               <div class="create-row">
-                <input name="chat_id" placeholder="ID do canal no Slack (ex: C0123ABCDEF)" required />
+                <input name="chat_id" placeholder="ID do canal (C0123ABCDEF) ou URL do fluxo (https://hooks.slack.com/triggers/…)" required />
                 <input name="label" placeholder="rótulo (ex: #softcs-ka)" />
                 <button type="submit" class="btn btn-primary">+ Adicionar</button>
               </div>
               <p class="muted" style="margin-top: 0.35rem;">
-                O ID fica no Slack em: clique no nome do canal → aba "Sobre" → no fim da janela.
-                Antes, adicione o bot ao canal com <code>/invite @SoftCS Bot</code>.
+                <b>Com bot:</b> o ID fica no Slack em: nome do canal → aba "Sobre" → fim da janela
+                (antes, <code>/invite @SoftCS Bot</code> no canal). <b>Sem bot:</b> cole a URL do
+                fluxo de trabalho com gatilho "De um webhook" (ver README).
               </p>
               <label class="field-label" style="margin-top: 0.75rem;">
                 Membros (opcional) — tickets criados por esses agentes também vêm pra esse

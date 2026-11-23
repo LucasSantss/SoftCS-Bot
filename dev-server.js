@@ -27,7 +27,7 @@ if (process.env.SOFTCS_TOKEN_DATABASE_URL && process.env.SOFTCS_TOKEN_DATABASE_U
   process.exit(1);
 }
 for (const [name, hint] of [
-  ['SLACK_BOT_TOKEN', 'mensagens e Lista do Slack não vão funcionar'],
+  ['SLACK_BOT_TOKEN', 'só o modo fluxo de trabalho (URL de webhook) vai funcionar; canais por ID e a Lista pelo bot não'],
   ['SOFTCS_TOKEN_DATABASE_URL', '"Buscar tickets" vai usar (e RENOVAR) o token da SoftCS da branch — isso invalida o token da produção'],
   ['DEV_LOGIN_EMAIL', 'o login vai pelo Google, que precisa ter http://localhost:' + PORT + '/api/auth-callback cadastrado'],
 ]) {

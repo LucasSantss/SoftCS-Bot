@@ -772,8 +772,10 @@ function renderChatRow(chat, container, journeyGroups) {
       <button class="icon-btn" title="Remover">🗑</button>
     </div>
   `;
+  const isWebhook = chat.chat_id.startsWith("https://hooks.slack.com/triggers/");
   row.querySelector(".list-item-title").textContent = chat.label || "(sem rótulo)";
-  const subParts = [chat.chat_id];
+  // URL do fluxo aparece mascarada — quem tem a URL inteira dispara o fluxo.
+  const subParts = [isWebhook ? `fluxo de trabalho ${chat.chat_id.slice(33, 37)}…${chat.chat_id.slice(-4)}` : chat.chat_id];
   if ((chat.journey_group_names || []).length) {
     subParts.push(`jornadas: ${chat.journey_group_names.join(", ")}`);
   }
@@ -999,6 +1001,11 @@ const slackListStatus = document.getElementById("slackListStatus");
 async function loadSlackStatus() {
   try {
     const data = await api("/api/slack");
+    if (data.mode === "webhook") {
+      setStatus(slackStatusLine, "Modo fluxo de trabalho (sem bot): cadastre abaixo a URL do webhook de cada fluxo.", false);
+      createSlackListBtn.style.display = "none";
+      return;
+    }
     setStatus(
       slackStatusLine,
       `Conectado ao workspace "${data.team}" como @${data.botUser}. ` +

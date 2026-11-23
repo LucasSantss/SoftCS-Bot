@@ -11,7 +11,81 @@ Bot que acompanha os tickets da SoftCS e avisa no **Slack** quando um ticket mud
 - **Rastreador de tickets (Slack List):** tem as colunas Ticket, Coluna, Status (Aberto / Aguardando resposta / Resolvido), Prioridade, Cliente, Jornada, Criado por, Responsável, CSM, Link e Atualizado em. O bot atualiza a linha sozinho. **Precisa de plano pago do Slack.**
 - **Lembrete das 9h:** os canais marcados com "Lembrete 9h" recebem todo dia a lista de tickets parados em "Aguardando Resposta" há 2 dias ou mais.
 
+## Dois jeitos de ligar ao Slack
+
+| | **Bot (app do Slack)** | **Fluxo de trabalho (webhook)** |
+|---|---|---|
+| Precisa de admin? | Sim, para instalar o app no workspace | Não: qualquer membro de plano pago cria |
+| Mensagem por ticket | **Uma só**, editada a cada mudança, com o histórico na thread | **Uma por mudança de coluna**; o fluxo não edita nem responde em thread |
+| Lista | Uma linha por ticket, **atualizada** | O fluxo **adiciona** uma linha a cada mudança (vira um histórico) |
+| @menção | Automática (botão "Ligar agentes ao Slack") | Pela variável `mencoes`, só para quem tem o ID de membro preenchido à mão na aba Agentes |
+| Lembrete das 9h | Sim | Não |
+| O que cadastrar na aba Canais | ID do canal (`C…`) | URL do fluxo (`https://hooks.slack.com/triggers/…`) |
+
+Os dois podem conviver: cada canal cadastrado usa o modo do que foi colado nele.
+
+## Passo a passo: fluxo de trabalho com webhook (sem admin)
+
+Crie um fluxo por canal: KA, Adoção, Suporte, Implantação e Todos.
+
+### 1. Criar o fluxo
+
+Dá para aproveitar o "Formulário de feedback" do modelo do canal, trocando o início, ou criar um fluxo novo.
+
+1. No canal, por exemplo `#softcs-ka`, abra **Fluxos de trabalho** e clique em **Criar fluxo de trabalho**.
+   - Para aproveitar o "Formulário de feedback": abra ele para editar, clique no início ("Começa com um link no Slack") e troque por **De um webhook**. Depois **apague a etapa "Coletar informações em um formulário"**: o webhook roda sozinho, sem ninguém preenchendo.
+2. Em **Começa…**, escolha **De um webhook**.
+3. Clique em **Configurar variáveis** e crie as 13 variáveis abaixo, todas do tipo **Texto**, com a chave escrita **exatamente** assim. Se faltar uma, o fluxo falha.
+
+   | Chave | O que vem nela |
+   |---|---|
+   | `evento` | "Mudou de coluna", "Aguardando resposta" ou "Resolvido" |
+   | `ticket` | título do ticket |
+   | `coluna` | coluna atual |
+   | `coluna_anterior` | coluna de onde saiu |
+   | `prioridade` | P0, P1, P2 ou P3 |
+   | `cliente` | nome do cliente |
+   | `jornada` | jornada(s) do cliente |
+   | `criado_por` | nome de quem criou |
+   | `responsavel` | nome do responsável |
+   | `csm` | nome do CSM (só preenchido no canal KA e no Todos) |
+   | `mencoes` | `<@ID>` das pessoas acima que têm ID do Slack na aba Agentes |
+   | `link` | link do ticket na SoftCS |
+   | `ticket_id` | número do ticket |
+
+4. Clique em **Continuar**.
+
+### 2. Etapa: mensagem no canal
+
+**Adicionar etapa** → **Enviar uma mensagem para** → **canal** (o próprio canal). Monte a mensagem inserindo as variáveis com o botão **{}**. Exemplo:
+
+```
+🔄 {evento}: {ticket}
+Coluna: {coluna_anterior} → {coluna}
+Prioridade: {prioridade} · Cliente: {cliente} · Jornada: {jornada}
+Criado por: {criado_por} · Responsável: {responsavel} · CSM: {csm}
+{mencoes}
+{link}
+```
+
+### 3. Etapa (opcional): item na Lista
+
+**Adicionar etapa** → **Adicionar item à lista**. Escolha a Lista e ligue cada coluna a uma variável. Use uma Lista com colunas de **texto**: as colunas de opção do modelo (Tipo, Gravidade) podem não aceitar variável de texto. Uma sugestão de colunas: Ticket, Evento, Coluna, Prioridade, Cliente, Jornada, Criado por, Responsável, CSM e Link.
+
+> Nesse modo, cada mudança de coluna **adiciona uma linha nova**: a Lista vira o histórico de movimentações, não uma linha por ticket. Para ter uma linha por ticket atualizada sozinha, é preciso o modo bot.
+
+### 4. Publicar e cadastrar no painel
+
+1. Clique em **Publicar** e copie a **URL de solicitação da Web** (`https://hooks.slack.com/triggers/…`).
+   - Guarde essa URL como uma senha: quem tiver o link consegue disparar o fluxo.
+2. No painel, aba **Canais**, cole a URL no campo do ID, dê um rótulo (por exemplo `#softcs-ka`) e escolha o grupo de jornada.
+3. Clique em **Testar**: o fluxo roda com um "Ticket de teste do SoftCS Bot".
+
+**@menção:** confira na primeira notificação real se `{mencoes}` aparece como menção (`@Ana`) ou como texto cru (`<@U0…>`). Ela só vem preenchida para quem tem o **ID de membro** cadastrado na aba Agentes; sem o bot, o botão "Ligar agentes ao Slack" não funciona, então o ID precisa ser preenchido à mão.
+
 ## Passo a passo: criar o bot no Slack
+
+> O app é instalado **no workspace escolhido na criação**. Se você criou no workspace errado (o painel mostra o nome do workspace conectado), crie o app de novo, a partir do mesmo manifesto, escolhendo o workspace certo. Se aparecer "Request to Install", é preciso aprovação de um admin; enquanto isso, use o modo fluxo de trabalho acima.
 
 Você precisa ser admin do workspace do Slack, ou pedir a um admin para aprovar o app no passo 3.
 

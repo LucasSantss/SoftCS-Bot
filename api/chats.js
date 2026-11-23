@@ -2,10 +2,14 @@ import sql from '../lib/db.js';
 import { requireSession } from '../lib/auth.js';
 import { slugifyCommand } from '../lib/journey-groups.js';
 import { grantChannelAccess } from '../lib/slack-list.js';
+import { isWebhookTarget, WEBHOOK_URL_PREFIX } from '../lib/slack-webhook.js';
 
-// Canais do Slack que recebem notificação (aba Chats). `chat_id` = ID do
-// canal no Slack (C… — em "Ver detalhes do canal", no fim da aba "Sobre").
-// O bot precisa estar no canal (/invite @SoftCS Bot) pra conseguir postar.
+// Canais do Slack que recebem notificação (aba Canais). `chat_id` é um de:
+// - ID do canal no Slack (C… — aba "Sobre" do canal), modo bot: o bot
+//   precisa estar no canal (/invite @SoftCS Bot);
+// - URL de um fluxo de trabalho com gatilho "De um webhook"
+//   (https://hooks.slack.com/triggers/…), modo fluxo — ver
+//   lib/slack-webhook.js.
 async function handleChats(req, res) {
   if (req.method === 'GET') {
     const rows = await sql`
@@ -34,9 +38,12 @@ async function handleChats(req, res) {
 
   if (req.method === 'POST') {
     const { chat_id, label, member_ids, journey_group_commands } = req.body ?? {};
-    const channelId = String(chat_id ?? '').trim().toUpperCase();
-    if (!/^[CG][A-Z0-9]{6,}$/.test(channelId)) {
-      res.status(400).json({ error: 'Informe o ID do canal do Slack (começa com C, ex: C0123ABCDEF)' });
+    const raw = String(chat_id ?? '').trim();
+    const channelId = isWebhookTarget(raw) ? raw : raw.toUpperCase();
+    if (!isWebhookTarget(channelId) && !/^[CG][A-Z0-9]{6,}$/.test(channelId)) {
+      res.status(400).json({
+        error: `Informe o ID do canal do Slack (começa com C, ex: C0123ABCDEF) ou a URL do fluxo de trabalho (${WEBHOOK_URL_PREFIX}…)`,
+      });
       return;
     }
 
@@ -49,7 +56,7 @@ async function handleChats(req, res) {
 
     // Canal novo ganha acesso de edição à Lista "Rastreador de tickets", se
     // ela já existir — falha aqui não impede o cadastro do canal.
-    if (inserted[0]?.is_new) {
+    if (inserted[0]?.is_new && !isWebhookTarget(channelId)) {
       try {
         await grantChannelAccess([channelId]);
       } catch (err) {
