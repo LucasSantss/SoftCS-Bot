@@ -35,7 +35,7 @@ Dá para aproveitar o "Formulário de feedback" do modelo do canal, trocando o i
 1. No canal, por exemplo `#softcs-ka`, abra **Fluxos de trabalho** e clique em **Criar fluxo de trabalho**.
    - Para aproveitar o "Formulário de feedback": abra ele para editar, clique no início ("Começa com um link no Slack") e troque por **De um webhook**. Depois **apague a etapa "Coletar informações em um formulário"**: o webhook roda sozinho, sem ninguém preenchendo.
 2. Em **Começa…**, escolha **De um webhook**.
-3. Clique em **Configurar variáveis** e crie as 16 variáveis abaixo, com a chave escrita **exatamente** assim. As 13 primeiras são do tipo **Texto**; as 3 últimas (`*_id`), do tipo **ID de usuário**. Se faltar uma, o fluxo falha.
+3. Clique em **Configurar variáveis** e crie as 17 variáveis abaixo, com a chave escrita **exatamente** assim. Todas são do tipo **Texto**, menos as 3 `*_id`, que são do tipo **ID de usuário**. Se faltar uma, o fluxo falha.
 
    | Chave | O que vem nela |
    |---|---|
@@ -55,6 +55,9 @@ Dá para aproveitar o "Formulário de feedback" do modelo do canal, trocando o i
    | `criado_por_id` | ID de membro do Slack de quem criou (tipo **ID de usuário**) |
    | `responsavel_id` | ID de membro do Slack do responsável (tipo **ID de usuário**) |
    | `csm_id` | ID de membro do Slack do CSM (tipo **ID de usuário**; só no KA e no Todos) |
+   | `data_hora` | data e hora da mudança em Brasília, `2026-11-23 16:52` (tipo **Texto**) |
+
+   Para a Lista mostrar o mais novo no topo: crie uma coluna de texto "Quando", ligue ela a `data_hora` e classifique a Lista por essa coluna, em ordem decrescente.
 
    Os `*_id` alimentam colunas do tipo **Pessoa** na Lista: a pessoa aparece como @menção na linha. Eles vêm vazios para quem não tem o ID preenchido na aba **Agentes** (perfil da pessoa no Slack → **⋮** → **Copiar ID de membro**).
 
