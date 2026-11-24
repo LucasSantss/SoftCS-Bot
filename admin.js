@@ -41,6 +41,7 @@ const TAB_META = {
   tickets: { title: "Tickets", sub: "Consulta os tickets da SoftCS, agrupados pelas colunas do Kanban" },
   agents: { title: "Agentes", sub: "Mapeamento entre usuário SoftCS e usuário do Slack (pra @menção)" },
   chats: { title: "Canais do Slack", sub: "Canais que recebem a notificação de mudança de coluna e a Lista de tickets" },
+  teams: { title: "Times", sub: "Times de agentes (a partir do JSON do Slack) — cada canal escolhe quais segue" },
   journeys: { title: "Jornadas", sub: "Grupos de jornada (KA, Adoção, Suporte...) — cada canal escolhe quais segue" },
   access: { title: "Acesso", sub: "Quem pode entrar no painel (@chatbotmaker.io)" },
 };
@@ -766,6 +767,15 @@ const chatList = document.getElementById("chatList");
 const chatEmpty = document.getElementById("chatEmpty");
 const newChatMembers = document.getElementById("newChatMembers");
 const newChatJourneyGroups = document.getElementById("newChatJourneyGroups");
+const newChatTeams = document.getElementById("newChatTeams");
+
+function populateTeamOptions(container, teams, selectedIds) {
+  renderMultiSelect(
+    container,
+    teams.map((t) => ({ value: String(t.id), label: `${t.name} (${t.member_ids.length})` })),
+    (selectedIds || []).map(String)
+  );
+}
 
 // Monta o multi-select pesquisável com todos os agentes conhecidos,
 // marcando os que já pertencem ao chat (selectedIds). Usado no form "Novo
@@ -789,19 +799,24 @@ function populateJourneyGroupOptions(container, groups, selectedCommands) {
 
 async function loadChats() {
   try {
-    const [chats, { groups }] = await Promise.all([api("/api/chats"), api("/api/journey-groups")]);
+    const [chats, { groups }, { teams }] = await Promise.all([
+      api("/api/chats"),
+      api("/api/journey-groups"),
+      api("/api/teams"),
+    ]);
     chatList.innerHTML = "";
     chatEmpty.style.display = chats.length ? "none" : "block";
-    for (const chat of chats) renderChatRow(chat, chatList, groups);
+    for (const chat of chats) renderChatRow(chat, chatList, groups, teams);
 
     populateAgentOptions(newChatMembers, []);
     populateJourneyGroupOptions(newChatJourneyGroups, groups, []);
+    populateTeamOptions(newChatTeams, teams, []);
   } catch (err) {
     setStatus(chatStatus, err.message, true);
   }
 }
 
-function renderChatRow(chat, container, journeyGroups) {
+function renderChatRow(chat, container, journeyGroups, teams) {
   const wrapper = document.createElement("div");
 
   const row = document.createElement("div");
@@ -815,6 +830,7 @@ function renderChatRow(chat, container, journeyGroups) {
       <span class="test-result status-line"></span>
       <button class="btn btn-secondary members-btn">Membros (${(chat.member_ids || []).length})</button>
       <button class="btn btn-secondary journey-groups-btn">Jornadas (${(chat.journey_group_names || []).length})</button>
+      <button class="btn btn-secondary teams-btn">Times (${(chat.team_ids || []).length})</button>
       <button class="btn btn-secondary test-btn">Testar</button>
       <label class="field-label awaiting-label" style="display:flex; align-items:center; gap:0.3rem; margin:0;" title="Lembrete diário (9h) dos tickets parados em Aguardando Resposta">
         <input type="checkbox" class="awaiting-toggle" /> Lembrete 9h
@@ -833,6 +849,10 @@ function renderChatRow(chat, container, journeyGroups) {
   const subParts = [isWebhook ? `fluxo de trabalho ${chat.chat_id.slice(33, 37)}…${chat.chat_id.slice(-4)}` : chat.chat_id];
   if ((chat.journey_group_names || []).length) {
     subParts.push(`jornadas: ${chat.journey_group_names.join(", ")}`);
+  }
+  const followedTeams = teams.filter((t) => (chat.team_ids || []).map(Number).includes(Number(t.id)));
+  if (followedTeams.length) {
+    subParts.push(`times: ${followedTeams.map((t) => t.name).join(", ")}`);
   }
   if (chat.awaiting_response_subscribed) {
     subParts.push("recebe o lembrete das 9h");
@@ -1049,6 +1069,52 @@ function renderChatRow(chat, container, journeyGroups) {
 
   panels.push(journeyGroupsPanel);
 
+  // ── Painel de times (colapsado por padrão) — quais times (aba Times) esse
+  // canal segue.
+  {
+    const teamsPanel = document.createElement("div");
+    teamsPanel.style.display = "none";
+    teamsPanel.style.margin = "0.5rem 0 0.75rem";
+    teamsPanel.innerHTML = `
+      <div class="multi-select"></div>
+      <div class="form-actions" style="margin-top: 0.5rem;">
+        <button type="button" class="btn btn-primary save-teams-btn">Salvar times</button>
+        <span class="teams-status status-line"></span>
+      </div>
+    `;
+    const teamsSelect = teamsPanel.querySelector(".multi-select");
+    const teamsStatus = teamsPanel.querySelector(".teams-status");
+
+    row.querySelector(".teams-btn").addEventListener("click", () => {
+      const isOpen = teamsPanel.style.display !== "none";
+      if (isOpen) {
+        teamsPanel.style.display = "none";
+      } else {
+        populateTeamOptions(teamsSelect, teams, chat.team_ids);
+        teamsPanel.style.display = "block";
+      }
+    });
+
+    teamsPanel.querySelector(".save-teams-btn").addEventListener("click", async (event) => {
+      const btn = event.currentTarget;
+      btn.disabled = true;
+      try {
+        await api("/api/chats", {
+          method: "POST",
+          body: JSON.stringify({ chat_id: chat.chat_id, label: chat.label, team_ids: getMultiSelectValues(teamsSelect).map(Number) }),
+        });
+        setStatus(teamsStatus, "Salvo.", false);
+        await Promise.all([loadChats(), loadTeams()]);
+      } catch (err) {
+        setStatus(teamsStatus, err.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    panels.push(teamsPanel);
+  }
+
   wrapper.append(row, ...panels);
   container.appendChild(wrapper);
 }
@@ -1062,12 +1128,13 @@ chatForm.addEventListener("submit", async (event) => {
     label: chatForm.elements.label.value.trim(),
     member_ids: memberIds,
     journey_group_commands: journeyGroupCommands,
+    team_ids: getMultiSelectValues(newChatTeams).map(Number),
   };
   try {
     await api("/api/chats", { method: "POST", body: JSON.stringify(data) });
     chatForm.reset();
     setStatus(chatStatus, "Adicionado.", false);
-    await loadChats();
+    await Promise.all([loadChats(), loadTeams()]);
   } catch (err) {
     setStatus(chatStatus, err.message, true);
   }
@@ -1389,10 +1456,172 @@ accessForm.addEventListener("submit", async (event) => {
   }
 });
 
+// ─── Times ───────────────────────────────────────────────────────────────
+const teamForm = document.getElementById("teamForm");
+const teamStatus = document.getElementById("teamStatus");
+const teamList = document.getElementById("teamList");
+const teamEmpty = document.getElementById("teamEmpty");
+const newTeamMembers = document.getElementById("newTeamMembers");
+const newTeamJson = document.getElementById("newTeamJson");
+const newTeamJsonBtn = document.getElementById("newTeamJsonBtn");
+
+// Lê o JSON do Slack, liga os IDs do Slack dos agentes e marca no seletor
+// os agentes que estão no JSON (somando ao que já estava marcado — dá pra
+// desmarcar antes de salvar).
+async function preselectFromSlackJson(textarea, select, statusEl) {
+  const data = await importSlackUsersJson(textarea.value, null);
+  const selected = new Set([...getMultiSelectValues(select), ...data.agentIds]);
+  await loadAgents();
+  populateAgentOptions(select, [...selected]);
+  textarea.value = "";
+  setStatus(statusEl, `${data.agentIds.length} agente(s) pré-selecionado(s). ${describeSlackImport({ ...data, added: undefined })}`, false);
+}
+
+newTeamJsonBtn.addEventListener("click", async () => {
+  newTeamJsonBtn.disabled = true;
+  try {
+    await preselectFromSlackJson(newTeamJson, newTeamMembers, teamStatus);
+  } catch (err) {
+    setStatus(teamStatus, err.message, true);
+  } finally {
+    newTeamJsonBtn.disabled = false;
+  }
+});
+
+async function loadTeams() {
+  try {
+    const { teams } = await api("/api/teams");
+    teamList.innerHTML = "";
+    teamEmpty.style.display = teams.length ? "none" : "block";
+    for (const team of teams) renderTeamRow(team);
+    if (!getMultiSelectValues(newTeamMembers).length) populateAgentOptions(newTeamMembers, []);
+  } catch (err) {
+    setStatus(teamStatus, err.message, true);
+  }
+}
+
+function agentNameOf(id) {
+  const a = agentInfoById.get(id);
+  return a?.display_name || a?.email || id;
+}
+
+function renderTeamRow(team) {
+  const wrapper = document.createElement("div");
+  const row = document.createElement("div");
+  row.className = "list-item";
+  row.innerHTML = `
+    <div class="list-item-main">
+      <span class="list-item-title"></span>
+      <span class="list-item-sub"></span>
+    </div>
+    <div class="list-item-actions">
+      <button class="btn btn-secondary edit-btn">Membros (${team.member_ids.length})</button>
+      <button class="icon-btn" title="Remover">🗑</button>
+    </div>
+  `;
+  row.querySelector(".list-item-title").textContent = team.name;
+  const names = team.member_ids.map(agentNameOf).sort((a, b) => a.localeCompare(b));
+  row.querySelector(".list-item-sub").textContent =
+    `${names.join(", ") || "sem membros"} — seguido por ${team.channel_count} canal(is)`;
+
+  row.querySelector(".icon-btn").addEventListener("click", async () => {
+    if (!confirm(`Remover o time "${team.name}"? Os canais que seguem deixam de receber os tickets dele.`)) return;
+    try {
+      await api(`/api/teams?id=${encodeURIComponent(team.id)}`, { method: "DELETE" });
+      await Promise.all([loadTeams(), loadChats()]);
+      setStatus(teamStatus, "Removido.", false);
+    } catch (err) {
+      setStatus(teamStatus, err.message, true);
+    }
+  });
+
+  const editPanel = document.createElement("div");
+  editPanel.style.display = "none";
+  editPanel.style.margin = "0.5rem 0 0.75rem";
+  editPanel.innerHTML = `
+    <div class="create-row">
+      <input type="text" class="team-name" placeholder="Nome do time" />
+    </div>
+    <textarea class="team-json" rows="3" placeholder='JSON dos membros copiado do Slack (opcional) — {"results": [ … ]}' style="margin-top: 0.5rem;"></textarea>
+    <div class="form-actions">
+      <button type="button" class="btn btn-secondary preselect-btn">Pré-selecionar do JSON</button>
+    </div>
+    <div class="multi-select" style="margin-top: 0.5rem;"></div>
+    <div class="form-actions" style="margin-top: 0.5rem;">
+      <button type="button" class="btn btn-primary save-btn">Salvar time</button>
+      <span class="edit-status status-line"></span>
+    </div>
+  `;
+  const nameInput = editPanel.querySelector(".team-name");
+  const jsonInput = editPanel.querySelector(".team-json");
+  const select = editPanel.querySelector(".multi-select");
+  const editStatus = editPanel.querySelector(".edit-status");
+
+  row.querySelector(".edit-btn").addEventListener("click", () => {
+    const isOpen = editPanel.style.display !== "none";
+    if (isOpen) {
+      editPanel.style.display = "none";
+    } else {
+      nameInput.value = team.name;
+      populateAgentOptions(select, team.member_ids);
+      editPanel.style.display = "block";
+    }
+  });
+
+  editPanel.querySelector(".preselect-btn").addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    try {
+      await preselectFromSlackJson(jsonInput, select, editStatus);
+    } catch (err) {
+      setStatus(editStatus, err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  editPanel.querySelector(".save-btn").addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    try {
+      await api("/api/teams", {
+        method: "POST",
+        body: JSON.stringify({ id: team.id, name: nameInput.value.trim(), member_ids: getMultiSelectValues(select) }),
+      });
+      await Promise.all([loadTeams(), loadChats()]);
+      setStatus(teamStatus, `Time "${nameInput.value.trim()}" salvo.`, false);
+    } catch (err) {
+      setStatus(editStatus, err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  wrapper.append(row, editPanel);
+  teamList.appendChild(wrapper);
+}
+
+teamForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const name = teamForm.elements.name.value.trim();
+  const memberIds = getMultiSelectValues(newTeamMembers);
+  if (memberIds.length === 0 && !confirm(`Criar o time "${name}" sem nenhum membro?`)) return;
+  try {
+    await api("/api/teams", { method: "POST", body: JSON.stringify({ name, member_ids: memberIds }) });
+    teamForm.reset();
+    populateAgentOptions(newTeamMembers, []);
+    setStatus(teamStatus, `Time "${name}" criado com ${memberIds.length} membro(s). Agora escolha, na aba Canais, quais canais seguem esse time.`, false);
+    await Promise.all([loadTeams(), loadChats()]);
+  } catch (err) {
+    setStatus(teamStatus, err.message, true);
+  }
+});
+
 async function boot() {
   await loadMe();
   await loadAgents(); // precisa terminar antes: loadChats popula o seletor de membros, e o board salvo usa agentInfoById pro nome/@ do criador
   loadChats();
+  loadTeams();
   loadSlackStatus();
   loadJourneyGroups();
   loadConnection();

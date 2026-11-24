@@ -282,6 +282,28 @@
     primary key (chat_id, command)
   );
 
+  -- Times (aba Times): grupos de agentes, montados à mão ou a partir do JSON
+  -- de membros copiado do Slack. Cada canal escolhe quais times segue
+  -- (chat_teams), igual aos grupos de jornada: ticket criado por qualquer
+  -- membro de um time notifica os canais que seguem esse time.
+  create table if not exists teams (
+    id serial primary key,
+    name text not null unique,
+    created_at timestamptz not null default now()
+  );
+
+  create table if not exists team_members (
+    team_id integer not null references teams (id) on delete cascade,
+    softcs_user_id text not null references agent_mapping (softcs_user_id) on delete cascade,
+    primary key (team_id, softcs_user_id)
+  );
+
+  create table if not exists chat_teams (
+    chat_id text not null references slack_channels (chat_id) on delete cascade,
+    team_id integer not null references teams (id) on delete cascade,
+    primary key (chat_id, team_id)
+  );
+
   -- Cache de nome de cliente, só pra exibição das colunas de encerramento no
   -- Kanban (api/discover-tickets.js?source=closed) e da exportação
   -- (api/export-tickets.js) — ver lib/client-names.js. A busca de tickets não

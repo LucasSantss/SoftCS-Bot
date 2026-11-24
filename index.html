@@ -31,6 +31,10 @@
           <span class="nav-dot"></span>
           Canais
         </button>
+        <button class="nav-item" data-tab="teams">
+          <span class="nav-dot"></span>
+          Times
+        </button>
         <button class="nav-item" data-tab="journeys">
           <span class="nav-dot"></span>
           Jornadas
@@ -231,6 +235,10 @@
                 o pega-tudo "Todos") — tickets de qualquer cliente nessas jornadas
               </label>
               <div id="newChatJourneyGroups" class="multi-select"></div>
+              <label class="field-label" style="margin-top: 0.75rem;">
+                Times que esse canal segue (aba Times) — tickets criados por qualquer membro do time
+              </label>
+              <div id="newChatTeams" class="multi-select"></div>
             </form>
             <p id="chatStatus" class="status-line"></p>
           </div>
@@ -240,6 +248,40 @@
           <div class="empty-state" id="chatEmpty" style="display:none">
             <p>Nenhum canal cadastrado ainda.</p>
             <p class="muted">Adicione o bot ao canal e cole o ID dele acima para começar a receber notificações.</p>
+          </div>
+        </div>
+
+        <!-- ─── Times ─── -->
+        <div class="tab-panel" id="tab-teams">
+          <div class="card">
+            <h3>Novo time</h3>
+            <p class="muted" style="margin-bottom: 0.5rem;">
+              Um time junta agentes (ex: Suporte N2, KA, Financeiro). Na aba Canais, cada canal
+              escolhe quais times segue, igual aos grupos de jornada, e recebe os tickets criados
+              por qualquer membro deles. Cole o JSON dos membros copiado do Slack pra
+              pré-selecionar os agentes, confira a seleção e crie o time.
+            </p>
+            <form id="teamForm">
+              <div class="create-row">
+                <input name="name" placeholder="Nome do time (ex: Suporte N2)" required />
+                <button type="submit" class="btn btn-primary">+ Criar time</button>
+              </div>
+              <label class="field-label" style="margin-top: 0.75rem;">
+                JSON dos membros copiado do Slack (opcional)
+              </label>
+              <textarea id="newTeamJson" rows="4" placeholder='{"results": [ … ]}'></textarea>
+              <div class="form-actions">
+                <button type="button" id="newTeamJsonBtn" class="btn btn-secondary">Pré-selecionar do JSON</button>
+              </div>
+              <label class="field-label" style="margin-top: 0.75rem;">Membros do time</label>
+              <div id="newTeamMembers" class="multi-select"></div>
+            </form>
+            <p id="teamStatus" class="status-line"></p>
+          </div>
+
+          <div class="list" id="teamList"></div>
+          <div class="empty-state" id="teamEmpty" style="display:none">
+            <p>Nenhum time cadastrado ainda.</p>
           </div>
         </div>
 

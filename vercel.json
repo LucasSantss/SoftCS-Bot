@@ -12,6 +12,7 @@
     { "source": "/api/oauth-start", "destination": "/api/softcs-oauth?action=start" },
     { "source": "/api/oauth-callback", "destination": "/api/softcs-oauth?action=callback" },
     { "source": "/api/journey-groups", "destination": "/api/chats?action=groups" },
+    { "source": "/api/teams", "destination": "/api/chats?action=teams" },
     { "source": "/api/export-tickets", "destination": "/api/discover-tickets?action=export" }
   ]
 }

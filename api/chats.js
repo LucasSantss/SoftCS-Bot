@@ -24,11 +24,17 @@ async function handleChats(req, res) {
         coalesce(
           json_agg(distinct g.name) filter (where g.name is not null),
           '[]'
-        ) as journey_group_names
+        ) as journey_group_names,
+        -- times seguidos (aba Times)
+        coalesce(
+          json_agg(distinct ct.team_id) filter (where ct.team_id is not null),
+          '[]'
+        ) as team_ids
       from slack_channels c
       left join chat_agents a on a.chat_id = c.chat_id
       left join chat_journey_groups cg on cg.chat_id = c.chat_id
       left join journey_groups g on g.command = cg.command
+      left join chat_teams ct on ct.chat_id = c.chat_id
       group by c.chat_id, c.label, c.active, c.created_at, c.awaiting_response_subscribed
       order by c.created_at desc
     `;
@@ -37,7 +43,7 @@ async function handleChats(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { chat_id, label, member_ids, journey_group_commands } = req.body ?? {};
+    const { chat_id, label, member_ids, journey_group_commands, team_ids } = req.body ?? {};
     const raw = String(chat_id ?? '').trim();
     const channelId = isWebhookTarget(raw) ? raw : raw.toUpperCase();
     if (!isWebhookTarget(channelId) && !/^[CG][A-Z0-9]{6,}$/.test(channelId)) {
@@ -84,6 +90,16 @@ async function handleChats(req, res) {
         await sql`
           insert into chat_journey_groups (chat_id, command)
           values (${channelId}, ${command})
+          on conflict do nothing
+        `;
+      }
+    }
+
+    if (Array.isArray(team_ids)) {
+      await sql`delete from chat_teams where chat_id = ${channelId}`;
+      for (const teamId of team_ids) {
+        await sql`
+          insert into chat_teams (chat_id, team_id) values (${channelId}, ${Number(teamId)})
           on conflict do nothing
         `;
       }
@@ -254,10 +270,80 @@ async function handleJourneyGroups(req, res) {
   res.status(405).json({ error: 'method not allowed' });
 }
 
+// CRUD dos times (aba Times), via ?action=teams (reescrito de /api/teams
+// pelo vercel.json) pelo mesmo motivo do limite de functions acima.
+async function handleTeams(req, res) {
+  if (req.method === 'GET') {
+    const teams = await sql`
+      select
+        t.id, t.name, t.created_at,
+        coalesce(json_agg(distinct m.softcs_user_id) filter (where m.softcs_user_id is not null), '[]') as member_ids,
+        count(distinct ct.chat_id) as channel_count
+      from teams t
+      left join team_members m on m.team_id = t.id
+      left join chat_teams ct on ct.team_id = t.id
+      group by t.id, t.name, t.created_at
+      order by t.name
+    `;
+    res.status(200).json({ teams });
+    return;
+  }
+
+  // Cria (sem id) ou atualiza (com id) nome e membros do time.
+  if (req.method === 'POST') {
+    const { id, name, member_ids: memberIds } = req.body ?? {};
+    const teamName = String(name ?? '').trim();
+    if (!teamName || !Array.isArray(memberIds)) {
+      res.status(400).json({ error: 'name e member_ids são obrigatórios' });
+      return;
+    }
+    const clash = await sql`select id from teams where lower(name) = lower(${teamName})`;
+    if (clash.length && Number(clash[0].id) !== Number(id)) {
+      res.status(400).json({ error: `Já existe um time chamado "${teamName}".` });
+      return;
+    }
+
+    let teamId = id ? Number(id) : null;
+    if (teamId) {
+      const updated = await sql`update teams set name = ${teamName} where id = ${teamId} returning id`;
+      if (!updated.length) {
+        res.status(404).json({ error: 'Time não encontrado' });
+        return;
+      }
+    } else {
+      teamId = (await sql`insert into teams (name) values (${teamName}) returning id`)[0].id;
+    }
+
+    await sql`delete from team_members where team_id = ${teamId}`;
+    for (const softcsUserId of memberIds) {
+      await sql`
+        insert into team_members (team_id, softcs_user_id) values (${teamId}, ${String(softcsUserId)})
+        on conflict do nothing
+      `;
+    }
+    res.status(200).json({ ok: true, id: teamId });
+    return;
+  }
+
+  if (req.method === 'DELETE') {
+    const id = Number(req.query.id);
+    if (!id) {
+      res.status(400).json({ error: 'id é obrigatório' });
+      return;
+    }
+    await sql`delete from teams where id = ${id}`;
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  res.status(405).json({ error: 'method not allowed' });
+}
+
 export default async function handler(req, res) {
   const user = await requireSession(req, res);
   if (!user) return;
 
+  if (req.query.action === 'teams') return handleTeams(req, res);
   if (req.query.action === 'groups') return handleJourneyGroups(req, res);
   return handleChats(req, res);
 }
