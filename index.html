@@ -135,6 +135,15 @@
               <button type="button" id="syncSlackUsersBtn" class="btn btn-primary">Ligar agentes ao Slack</button>
             </div>
             <p id="syncSlackUsersStatus" class="status-line"></p>
+            <p class="muted" style="margin-top: 1rem;">
+              <b>Sem o bot:</b> cole o JSON de usuários copiado do Slack (com <code>"results"</code> ou
+              <code>"members"</code>) — liga cada agente pelo e-mail, pelo @usuário ou pelo nome.
+            </p>
+            <textarea id="importSlackJsonInput" rows="5" placeholder='{"results": [{"id": "U…", "real_name": "…", "profile": {"email": "…"}}]}'></textarea>
+            <div class="form-actions">
+              <button type="button" id="importSlackJsonBtn" class="btn btn-primary">Importar JSON do Slack</button>
+            </div>
+            <p id="importSlackJsonStatus" class="status-line"></p>
           </div>
 
           <div class="card">

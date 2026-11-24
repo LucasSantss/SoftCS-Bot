@@ -59,7 +59,11 @@ Dá para aproveitar o "Formulário de feedback" do modelo do canal, trocando o i
 
    Para a Lista mostrar o mais novo no topo: crie uma coluna de texto "Quando", ligue ela a `data_hora` e classifique a Lista por essa coluna, em ordem decrescente.
 
-   Os `*_id` alimentam colunas do tipo **Pessoa** na Lista: a pessoa aparece como @menção na linha. Eles vêm vazios para quem não tem o ID preenchido na aba **Agentes** (perfil da pessoa no Slack → **⋮** → **Copiar ID de membro**).
+   Os `*_id` alimentam colunas do tipo **Pessoa** na Lista: a pessoa aparece como @menção na linha. Eles vêm vazios para quem não tem o ID preenchido na aba **Agentes**. Sem o bot, o jeito mais rápido de preencher é colar o JSON de usuários copiado do Slack (com `"results"` ou `"members"`):
+   - na aba **Agentes**, em **Importar JSON do Slack**: liga o ID de cada agente pelo e-mail, pelo @usuário ou pelo nome;
+   - na aba **Canais** → **Membros** de um canal → **Importar membros do JSON**: faz o mesmo e ainda adiciona ao canal os agentes que estão no JSON (não tira ninguém). Quem está no JSON mas não é agente da SoftCS aparece no aviso, e nome repetido (ex: dois "Paulo") não é ligado.
+
+   Para uma pessoa só: perfil no Slack → **⋮** → **Copiar ID de membro** e preencha na aba Agentes.
 
 4. Clique em **Continuar**.
 

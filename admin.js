@@ -268,6 +268,61 @@ syncSlackUsersBtn.addEventListener("click", async () => {
   }
 });
 
+// ─── JSON de usuários do Slack (sem bot) ──────────────────────────────────
+// Lê o JSON colado e manda só id/nomes/e-mail — o resto (telefone, foto,
+// status…) nem sai do navegador.
+function slimSlackUsersJson(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("JSON inválido — copie a resposta inteira, do { ao }.");
+  }
+  const list = Array.isArray(data) ? data : data?.results ?? data?.members ?? data?.users;
+  if (!Array.isArray(list)) throw new Error('JSON sem lista de usuários ("results" ou "members").');
+  return list.map((u) => ({
+    id: u?.id,
+    name: u?.name,
+    real_name: u?.real_name,
+    deleted: u?.deleted,
+    is_bot: u?.is_bot,
+    profile: { real_name: u?.profile?.real_name, display_name: u?.profile?.display_name, email: u?.profile?.email },
+  }));
+}
+
+function describeSlackImport(data) {
+  const parts = [`${data.agentsInJson} de ${data.slackUsers} pessoa(s) do JSON são agentes da SoftCS.`];
+  if (data.added) parts.push(data.added.length ? `Adicionados ao canal: ${data.added.join(", ")}.` : "Nenhum membro novo no canal.");
+  if (data.notAgents.length) parts.push(`Não encontrados entre os agentes: ${data.notAgents.join(", ")}.`);
+  return parts.join(" ");
+}
+
+async function importSlackUsersJson(text, chatId) {
+  const users = slimSlackUsersJson(text);
+  return api("/api/slack", {
+    method: "POST",
+    body: JSON.stringify({ action: "import-users", users_json: users, ...(chatId ? { chat_id: chatId } : {}) }),
+  });
+}
+
+const importSlackJsonInput = document.getElementById("importSlackJsonInput");
+const importSlackJsonBtn = document.getElementById("importSlackJsonBtn");
+const importSlackJsonStatus = document.getElementById("importSlackJsonStatus");
+
+importSlackJsonBtn.addEventListener("click", async () => {
+  importSlackJsonBtn.disabled = true;
+  try {
+    const data = await importSlackUsersJson(importSlackJsonInput.value, null);
+    setStatus(importSlackJsonStatus, describeSlackImport({ ...data, added: undefined }), false);
+    importSlackJsonInput.value = "";
+    await loadAgents();
+  } catch (err) {
+    setStatus(importSlackJsonStatus, err.message, true);
+  } finally {
+    importSlackJsonBtn.disabled = false;
+  }
+});
+
 // ─── Importar usuários da SoftCS (nome + e-mail em lote) ───────────────────
 const importAgentsInput = document.getElementById("importAgentsInput");
 const importAgentsBtn = document.getElementById("importAgentsBtn");
@@ -882,6 +937,14 @@ function renderChatRow(chat, container, journeyGroups) {
         <button type="button" class="btn btn-primary save-members-btn">Salvar membros</button>
         <span class="members-status status-line"></span>
       </div>
+      <p class="muted" style="margin-top: 0.75rem;">
+        Ou cole o JSON dos membros do canal copiado do Slack: adiciona como membros os agentes que estão nele
+        (não tira ninguém) e já liga o ID do Slack de cada um.
+      </p>
+      <textarea class="members-json" rows="4" placeholder='{"results": [ … ]}'></textarea>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary import-members-json-btn">Importar membros do JSON</button>
+      </div>
     `;
     const membersSelect = membersPanel.querySelector(".multi-select");
     const membersStatus = membersPanel.querySelector(".members-status");
@@ -907,6 +970,23 @@ function renderChatRow(chat, container, journeyGroups) {
         });
         setStatus(membersStatus, "Salvo.", false);
         await loadChats();
+      } catch (err) {
+        setStatus(membersStatus, err.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    membersPanel.querySelector(".import-members-json-btn").addEventListener("click", async (event) => {
+      const btn = event.currentTarget;
+      const textarea = membersPanel.querySelector(".members-json");
+      btn.disabled = true;
+      try {
+        const data = await importSlackUsersJson(textarea.value, chat.chat_id);
+        textarea.value = "";
+        await loadAgents();
+        await loadChats();
+        setStatus(chatStatus, `${chat.label || "Canal"}: ${describeSlackImport(data)}`, false);
       } catch (err) {
         setStatus(membersStatus, err.message, true);
       } finally {

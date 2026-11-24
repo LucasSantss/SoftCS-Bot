@@ -2,7 +2,7 @@ import sql from '../lib/db.js';
 import { requireSession } from '../lib/auth.js';
 import { slackApi, postMessage } from '../lib/slack.js';
 import { isWebhookTarget, postWorkflowWebhook } from '../lib/slack-webhook.js';
-import { syncSlackUsers } from '../lib/slack-users.js';
+import { syncSlackUsers, importSlackUsers } from '../lib/slack-users.js';
 import { createTrackerList, getTrackerList } from '../lib/slack-list.js';
 import { getOverdueAwaitingResponseTickets, buildAwaitingResponseMessages } from '../lib/awaiting-response.js';
 
@@ -15,6 +15,9 @@ import { getOverdueAwaitingResponseTickets, buildAwaitingResponseMessages } from
 //   Resposta" agora, sem mexer no envio automático das 9h;
 // - POST { action: 'sync-users' }: liga agentes a usuários do Slack por
 //   e-mail/nome (ver lib/slack-users.js);
+// - POST { action: 'import-users', users_json, chat_id? }: o mesmo, a partir
+//   do JSON de usuários colado do Slack (sem bot), e opcionalmente adiciona
+//   esses agentes como membros do canal;
 // - POST { action: 'create-list' }: cria a Lista "Rastreador de tickets"
 //   (ver lib/slack-list.js).
 export default async function handler(req, res) {
@@ -82,6 +85,15 @@ export default async function handler(req, res) {
 
     if (action === 'sync-users') {
       const result = await syncSlackUsers({ force: req.body?.force === true });
+      res.status(200).json({ ok: true, ...result });
+      return;
+    }
+
+    // JSON de usuários copiado do Slack: liga os IDs dos agentes sem
+    // precisar do bot e, com chat_id, adiciona os agentes como membros do
+    // canal.
+    if (action === 'import-users') {
+      const result = await importSlackUsers(req.body?.users_json, { chatId: chat_id || null });
       res.status(200).json({ ok: true, ...result });
       return;
     }
